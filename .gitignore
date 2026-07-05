@@ -1,0 +1,42 @@
+# Echte financiële data (Excel + bank-CSV's) — NOOIT committen
+/data/
+
+# Secrets & lokale config
+.env
+.env.local
+.env.*.local
+
+# Databases (SQLite en varianten)
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+htmlcov/
+.coverage
+
+# Node / frontend
+node_modules/
+frontend/dist/
+*.tsbuildinfo
+
+# Backups
+*.bak
+backups/
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
