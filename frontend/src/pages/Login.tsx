@@ -31,44 +31,44 @@ export default function Login() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-slate-100 px-4">
+    <main className="flex min-h-screen items-center justify-center bg-page px-4">
       <form
         onSubmit={onSubmit}
-        className="w-full max-w-sm space-y-4 rounded-2xl bg-white p-8 shadow"
+        className="w-full max-w-sm space-y-4 rounded-2xl border border-edge bg-surface p-8"
       >
-        <h1 className="text-2xl font-semibold text-slate-800">Huishouden</h1>
-        <p className="text-sm text-slate-500">Log in om verder te gaan.</p>
+        <h1 className="text-2xl font-semibold tracking-tight">Huishouden</h1>
+        <p className="text-sm text-ink-3">Log in om verder te gaan.</p>
 
         <label className="block">
-          <span className="mb-1 block text-sm font-medium text-slate-700">E-mailadres</span>
+          <span className="mb-1 block text-sm font-medium text-ink-2">E-mailadres</span>
           <input
             type="email"
             required
             autoComplete="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-indigo-500 focus:outline-none"
+            className="w-full rounded-lg border border-edge bg-page px-3 py-2 focus:border-accent focus:outline-none"
           />
         </label>
 
         <label className="block">
-          <span className="mb-1 block text-sm font-medium text-slate-700">Wachtwoord</span>
+          <span className="mb-1 block text-sm font-medium text-ink-2">Wachtwoord</span>
           <input
             type="password"
             required
             autoComplete="current-password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-indigo-500 focus:outline-none"
+            className="w-full rounded-lg border border-edge bg-page px-3 py-2 focus:border-accent focus:outline-none"
           />
         </label>
 
-        {error && <p className="text-sm text-red-600">{error}</p>}
+        {error && <p className="text-sm text-crit">{error}</p>}
 
         <button
           type="submit"
           disabled={busy}
-          className="w-full rounded-lg bg-indigo-600 py-2 font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+          className="w-full rounded-lg bg-accent py-2 font-medium text-white transition-colors hover:bg-accent/85 disabled:opacity-50"
         >
           {busy ? 'Bezig…' : 'Inloggen'}
         </button>

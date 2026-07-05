@@ -1,1 +1,29 @@
 @import "tailwindcss";
+
+/* Donker thema — tokens uit het dataviz-referentiepalet (dark-mode-stappen,
+   gevalideerd tegen surface #1a1a19). Status-kleuren nooit hergebruiken als
+   reeks-kleur; tekst draagt nooit de datakleur. */
+@theme {
+  --color-page: #0d0d0d; /* paginavlak */
+  --color-surface: #1a1a19; /* kaarten */
+  --color-raised: #232322; /* hover / verhoogde vlakken */
+  --color-ink: #ffffff; /* primaire tekst */
+  --color-ink-2: #c3c2b7; /* secundaire tekst */
+  --color-ink-3: #898781; /* gedempte tekst / labels */
+  --color-line: #2c2c2a; /* hairlines binnen een kaart */
+  --color-edge: rgb(255 255 255 / 0.1); /* rand rond kaarten */
+  --color-accent: #3987e5; /* reeks-blauw (dark-stap) */
+  --color-good: #0ca30c;
+  --color-warn: #fab219;
+  --color-crit: #d03b3b;
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  background-color: var(--color-page);
+  color: var(--color-ink);
+  -webkit-font-smoothing: antialiased;
+}
