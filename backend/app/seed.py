@@ -81,9 +81,7 @@ def seed_categories(db: Session, contexts: dict[str, Context]) -> None:
                 ).one_or_none()
                 if exists is None:
                     db.add(
-                        Category(
-                            context_id=ctx.id, name=name, type=cat_type, sort_order=sort_order
-                        )
+                        Category(context_id=ctx.id, name=name, type=cat_type, sort_order=sort_order)
                     )
                 sort_order += 1
 
