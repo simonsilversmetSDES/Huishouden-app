@@ -1,0 +1,3 @@
+* text=auto
+# Shell-scripts draaien in Linux-containers: altijd LF, ook op Windows-checkouts
+*.sh text eol=lf
