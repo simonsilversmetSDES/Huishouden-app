@@ -3,7 +3,9 @@
 Werkelijke bedragen komen uit transactions (app-conventie: + = inkomen,
 − = uitgave) en worden hier omgezet naar een positieve grootte binnen het
 type, zodat ze naast het (positieve) budget gelegd kunnen worden. Interne
-overschrijvingen tellen niet mee.
+overschrijvingen tellen niet mee. Een transactie telt in de maand van haar
+effective_date (budgetmaand), niet per se de uitvoeringsdatum — zoals in de
+Excel, waar loon van eind december voor januari telt.
 """
 
 from datetime import date
@@ -47,8 +49,8 @@ def build_dashboard(db: Session, context: Context, year: int, month: int) -> Das
     transactions = db.scalars(
         select(Transaction).where(
             Transaction.context_id == context.id,
-            Transaction.date >= start,
-            Transaction.date < end,
+            Transaction.effective_date >= start,
+            Transaction.effective_date < end,
             Transaction.is_internal_transfer.is_(False),
         )
     ).all()

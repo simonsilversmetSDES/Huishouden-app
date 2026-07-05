@@ -56,7 +56,16 @@ def _setup_maand(client: TestClient, db: Session) -> int:
                 amount="3000.00",
                 type=CategoryType.INKOMEN,
             ),
-            # andere maand: telt niet mee
+            # eind juni betaald maar budgetmaand juli (Excel "Effective Date"): telt mee
+            Transaction(
+                context_id=ctx.id,
+                category_id=bijdrage.id,
+                date=date(2025, 6, 28),
+                effective_date=date(2025, 7, 1),
+                amount="50.00",
+                type=CategoryType.INKOMEN,
+            ),
+            # andere maand (effective_date volgt date): telt niet mee
             Transaction(
                 context_id=ctx.id,
                 category_id=boodschappen.id,
@@ -104,10 +113,10 @@ class TestDashboard:
         # werkelijk als positieve grootte binnen het type; interne overschrijving telt niet
         assert rows["Boodschappen"]["budget_cents"] == 50000
         assert rows["Boodschappen"]["actual_cents"] == 20000  # 123,45 + 76,55
-        assert rows["Gemeenschappelijke bijdrage"]["actual_cents"] == 300000
+        assert rows["Gemeenschappelijke bijdrage"]["actual_cents"] == 305000  # incl. eind juni
 
         totals = {t["type"]: t for t in data["type_totals"]}
-        assert totals["Inkomen"]["actual_cents"] == 300000
+        assert totals["Inkomen"]["actual_cents"] == 305000
         assert totals["Uitgaven"]["actual_cents"] == 21000  # incl. ongecategoriseerde € 10
         assert totals["Uitgaven"]["budget_cents"] == 50000
 

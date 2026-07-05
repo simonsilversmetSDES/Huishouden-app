@@ -1,5 +1,6 @@
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Any
 
 from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
@@ -15,6 +16,11 @@ from app.models.enums import (
     str_enum,
 )
 from app.types import MoneyCents
+
+
+def _default_effective_date(context: Any) -> date:
+    """Zonder expliciete effective_date geldt de transactiedatum zelf."""
+    return context.get_current_parameters()["date"]
 
 
 class Import(Base):
@@ -36,6 +42,9 @@ class Transaction(Base):
     account_id: Mapped[int | None] = mapped_column(ForeignKey("accounts.id"))
     category_id: Mapped[int | None] = mapped_column(ForeignKey("categories.id"), index=True)
     date: Mapped[date] = mapped_column(Date, index=True)
+    # Budgetmaand-datum (Excel "Effective Date"): loon van eind december telt
+    # voor januari. Default gelijk aan date; het dashboard rekent hierop.
+    effective_date: Mapped[date] = mapped_column(Date, index=True, default=_default_effective_date)
     amount: Mapped[Decimal] = mapped_column(MoneyCents)  # + = inkomen, − = uitgave
     type: Mapped[CategoryType] = mapped_column(str_enum(CategoryType, "category_type"))
     counterparty_name: Mapped[str | None] = mapped_column(String)
