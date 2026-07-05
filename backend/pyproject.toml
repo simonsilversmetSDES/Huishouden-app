@@ -19,6 +19,7 @@ dev = [
     "pytest>=8.0",
     "httpx>=0.27",
     "ruff>=0.6",
+    "openpyxl>=3.1",  # voor de excel_import-tests
 ]
 migrate = [
     "openpyxl>=3.1",  # enkel nodig voor scripts/import_excel.py

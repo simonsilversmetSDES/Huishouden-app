@@ -28,6 +28,7 @@ class TransactionSource(StrEnum):
     MANUAL = "manual"
     IMPORT_KBC = "import_kbc"
     IMPORT_FORTIS = "import_fortis"
+    IMPORT_EXCEL = "import_excel"  # eenmalige migratie uit het werkboek
 
 
 class Categorization(StrEnum):

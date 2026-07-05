@@ -295,6 +295,65 @@ def inspect_workbook(path: Path) -> None:
         wb.close()
 
 
+def run_import(path: Path, db_url: str) -> None:
+    """Fase B: importeren + verificatierapport. Draai dit op een KOPIE van de db."""
+    sys.path.insert(0, str(REPO_ROOT / "backend"))
+    from sqlalchemy import create_engine, select
+    from sqlalchemy.orm import Session
+
+    from app.models import Context
+    from app.services.budget import build_matrix
+    from app.services.excel_import import import_workbook
+
+    engine = create_engine(db_url)
+    with Session(engine) as db:
+        report = import_workbook(db, path)
+
+        print(f"Werkboek: {path.name}")
+        print(f"Database: {db_url}\n")
+
+        print("— Budget Planning —")
+        for block in report.budget_blocks:
+            years = f"{block.years[0]}–{block.years[-1]}" if block.years else "geen"
+            print(
+                f"  {block.context:<18} {block.cells_new:>5} nieuwe cellen, "
+                f"{block.cells_updated} bijgewerkt, {block.placeholders_skipped} "
+                f"placeholder/totaal-rijen overgeslagen (jaren: {years})"
+            )
+
+        print("\n— Tracking —")
+        for tracking in report.tracking:
+            print(
+                f"  {tracking.sheet:<16} ({tracking.context}): "
+                f"{tracking.imported} geïmporteerd, {tracking.duplicates} duplicaten, "
+                f"{len(tracking.skipped)} overgeslagen"
+            )
+            for reden in tracking.skipped:
+                print(f"      · {reden}")
+
+        if report.name_mappings:
+            print("\n— Naam-mappings (Excel → bestaande categorie) —")
+            for mapping in report.name_mappings:
+                print(f"  {mapping}")
+        if report.categories_created:
+            print("\n— Automatisch aangemaakte categorieën —")
+            for created in report.categories_created:
+                print(f"  {created}")
+        else:
+            print("\nGeen categorieën automatisch aangemaakt.")
+
+        # Hercheck spec §10: TBA jan 2025 (Gemeenschappelijk) moet € 92,08 zijn.
+        gem = db.scalars(select(Context).where(Context.name == "Gemeenschappelijk")).one()
+        tba_cents = build_matrix(db, gem, 2025).to_be_allocated_cents[0]
+        verdict = "OK" if tba_cents == 9208 else "WIJKT AF!"
+        print(
+            f"\nTBA-hercheck jan 2025 (Gem.): € {tba_cents / 100:.2f} "
+            f"(verwacht € 92,08) → {verdict}"
+        )
+        if tba_cents != 9208:
+            sys.exit(1)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Excel-import voor de Huishouden-app")
     parser.add_argument(
@@ -302,6 +361,15 @@ def main() -> None:
     )
     parser.add_argument(
         "--inspect", action="store_true", help="alleen verkennen, niets schrijven"
+    )
+    parser.add_argument(
+        "--db",
+        default=None,
+        help=(
+            "SQLAlchemy-URL van de DOELDATABASE (verplicht voor import). "
+            "Gebruik een kopie, nooit de echte database — bv. "
+            "sqlite:///data/db/import-kopie.db"
+        ),
     )
     args = parser.parse_args()
 
@@ -313,10 +381,12 @@ def main() -> None:
         inspect_workbook(path)
         return
 
-    sys.exit(
-        "De import zelf is nog niet afgewerkt — eerst de --inspect-bevindingen "
-        "afstemmen (tekenconventie, jaren). Draai met --inspect."
-    )
+    if not args.db:
+        sys.exit(
+            "Import vereist --db met de URL van een KOPIE van de database "
+            "(bv. --db sqlite:///data/db/import-kopie.db). Zonder --db gebeurt er niets."
+        )
+    run_import(path, args.db)
 
 
 if __name__ == "__main__":
