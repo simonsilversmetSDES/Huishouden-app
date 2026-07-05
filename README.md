@@ -5,8 +5,10 @@ Een webapp voor de gezinsfinanciën van Simon & Jozefien. Ze vervangt de Excel
 rekeningstatussen, beleggingen, de lening en de vermogensbalans — allemaal op de
 eigen mini-PC, bereikbaar via Tailscale. Niets staat in de cloud.
 
-> **Stand van zaken:** Fase 1 (fundament) is klaar — inloggen werkt en de database
-> staat volledig klaar. De modules zelf (budget, transacties, …) volgen per fase.
+> **Stand van zaken:** Fase 1 (fundament) en Fase 2 (budgetmodule) zijn klaar —
+> inloggen, het dashboard met "te verdelen" en budget vs. werkelijk, de budgetmatrix
+> per jaar, en de eenmalige import uit de oude Excel. De volgende modules
+> (transacties met CSV-import, beleggingen, lening, balans) volgen per fase.
 
 ## Wat heb je nodig?
 
@@ -59,7 +61,7 @@ docker compose up -d
 ```
 
 De eerste keer duurt dit enkele minuten (alles wordt gebouwd). Daarna staat de
-app op **http://localhost:8080** — of op de mini-PC via het Tailscale-adres.
+app op **http://localhost:8081** — of op de mini-PC via het Tailscale-adres.
 Log in met je e-mailadres en het wachtwoord uit stap 3.
 
 ## Handige commando's
@@ -88,9 +90,51 @@ een andere schijf.
 
 ## Voor wie aan de code werkt
 
-- Backend: `cd backend`, venv activeren, `pip install -e .[dev]`, dan
-  `pytest` (tests), `ruff check .` (linting), `uvicorn app.main:app --reload` (dev-server).
-- Frontend: `cd frontend`, `npm install`, `npm run dev` (dev-server met proxy
-  naar de backend op poort 8000), `npm run build` (typecheck + productie-build).
+### Lokaal draaien zonder Docker (dev-omgeving op de laptop)
+
+Eenmalig instellen — alles gebeurt vanuit de map `backend/`:
+
+1. Maak `backend/.env` (staat in `.gitignore`) met minstens:
+
+   ```
+   APP_ENV=development
+   SECRET_KEY=<lange random string>
+   DATABASE_URL=sqlite:///../data/db/huishouden-dev.db
+   SIMON_EMAIL=simon@dev.local
+   SIMON_PASSWORD_HASH=<argon2-hash, zie scripts/hash_password.py>
+   SESSION_COOKIE_SECURE=false
+   ```
+
+   **Let op:** de database-URL is relatief aan de map waaruit je de backend start
+   (dus `../data/db/...` vanuit `backend/`). Een verkeerd pad geeft de fout
+   *"unable to open database file"*. Anders dan in Docker Compose hoef je de
+   `$`-tekens in de hash hier **niet** te verdubbelen.
+
+2. Maak de database aan en vul de basisgegevens:
+
+   ```
+   cd backend
+   .venv\Scripts\python -m alembic upgrade head
+   .venv\Scripts\python -m app.seed
+   ```
+
+Daarna, telkens je wil werken (twee terminals):
+
+```
+cd backend  → .venv\Scripts\python -m uvicorn app.main:app --reload
+cd frontend → npm run dev
+```
+
+De app staat dan op **http://localhost:5173** (Vite stuurt `/api` door naar de
+backend op poort 8000). Gewijzigde `.env`? Herstart de backend — `--reload` ziet
+alleen codewijzigingen.
+
+### Overige commando's
+
+- Backend: `pytest` (tests), `ruff check .` (linting) — vanuit `backend/`.
+- Frontend: `npm run build` (typecheck + productie-build), `npm run lint`.
+- Excel-import (eenmalig, altijd op een **kopie** van de database):
+  `backend\.venv\Scripts\python scripts\import_excel.py --inspect` om te verkennen,
+  daarna met `--db sqlite:///pad/naar/kopie.db` om echt te importeren.
 - De volledige functionele specificatie staat in `PROJECT_SPEC.md`;
   afspraken voor Claude Code in `CLAUDE.md`.
