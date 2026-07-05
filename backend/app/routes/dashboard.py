@@ -18,7 +18,7 @@ def get_dashboard(
     db: Annotated[Session, Depends(get_db)],
     context_id: int,
     year: Annotated[int, Query(ge=2000, le=2100)],
-    month: Annotated[int, Query(ge=1, le=12)],
+    month: Annotated[int | None, Query(ge=1, le=12)] = None,
 ) -> DashboardOut:
     context = db.get(Context, context_id)
     if context is None:

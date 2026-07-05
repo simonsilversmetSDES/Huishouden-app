@@ -19,11 +19,17 @@ class CategoryStatus(BaseModel):
     actual_cents: int
 
 
+class MonthTotals(BaseModel):
+    month: int
+    totals: list[TypeTotal]
+
+
 class DashboardOut(BaseModel):
     context_id: int
     year: int
-    month: int
-    to_be_allocated_cents: int  # gebudgetteerde TBA van deze maand
+    month: int | None  # None = heel jaar ("Total Year")
+    to_be_allocated_cents: int  # gebudgetteerde TBA van de periode
     type_totals: list[TypeTotal]
     categories: list[CategoryStatus]
     uncategorized_count: int
+    months: list[MonthTotals]  # altijd 12, voor de staafgrafiek werkelijk vs. budget

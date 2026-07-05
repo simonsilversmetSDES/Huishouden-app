@@ -137,3 +137,55 @@ class TestDashboard:
     def test_onbekende_context_404(self, logged_in: TestClient) -> None:
         resp = logged_in.get("/api/dashboard", params={"context_id": 999, "year": 2025, "month": 7})
         assert resp.status_code == 404
+
+
+class TestJaarWeergave:
+    """month weglaten = heel jaar; juni- én juli-transacties tellen dan samen."""
+
+    def test_jaar_telt_alle_maanden(self, logged_in: TestClient, seeded_db: Session) -> None:
+        context_id = _setup_maand(logged_in, seeded_db)
+        resp = logged_in.get("/api/dashboard", params={"context_id": context_id, "year": 2025})
+        assert resp.status_code == 200
+        data = resp.json()
+
+        assert data["month"] is None
+        totals = {t["type"]: t for t in data["type_totals"]}
+        # uitgaven: juli 200 + ongecat. 10 + juni 999 (effective juni telt nu ook mee)
+        assert totals["Uitgaven"]["actual_cents"] == 120900
+        assert totals["Inkomen"]["actual_cents"] == 305000
+        # budget: enkel juli ingevuld → jaartotaal = juli-budget
+        assert totals["Uitgaven"]["budget_cents"] == 50000
+        assert data["to_be_allocated_cents"] == 250000  # som van 12 maandelijkse TBA's
+
+        rows = {r["name"]: r for r in data["categories"]}
+        assert rows["Boodschappen"]["actual_cents"] == 119900  # 200 + 999
+
+    def test_months_voor_staafgrafiek(self, logged_in: TestClient, seeded_db: Session) -> None:
+        context_id = _setup_maand(logged_in, seeded_db)
+        for params in ({"month": 7}, {}):
+            resp = logged_in.get(
+                "/api/dashboard", params={"context_id": context_id, "year": 2025, **params}
+            )
+            months = resp.json()["months"]
+            assert [m["month"] for m in months] == list(range(1, 13))
+
+            juli = {t["type"]: t for t in months[6]["totals"]}
+            assert juli["Uitgaven"]["actual_cents"] == 21000
+            assert juli["Uitgaven"]["budget_cents"] == 50000
+            assert juli["Inkomen"]["actual_cents"] == 305000
+
+            juni = {t["type"]: t for t in months[5]["totals"]}
+            assert juni["Uitgaven"]["actual_cents"] == 99900
+            assert juni["Uitgaven"]["budget_cents"] == 0
+
+    def test_maandweergave_categorien_ongewijzigd(
+        self, logged_in: TestClient, seeded_db: Session
+    ) -> None:
+        context_id = _setup_maand(logged_in, seeded_db)
+        resp = logged_in.get(
+            "/api/dashboard", params={"context_id": context_id, "year": 2025, "month": 7}
+        )
+        data = resp.json()
+        assert data["month"] == 7
+        rows = {r["name"]: r for r in data["categories"]}
+        assert rows["Boodschappen"]["actual_cents"] == 20000  # juni telt hier niet mee

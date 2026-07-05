@@ -1,11 +1,14 @@
-"""Dashboardlogica (spec §4/§9): budget vs. werkelijk per context per maand.
+"""Dashboardlogica (spec §4/§9): budget vs. werkelijk per context, per maand of jaar.
 
 Werkelijke bedragen komen uit transactions (app-conventie: + = inkomen,
 − = uitgave) en worden hier omgezet naar een positieve grootte binnen het
 type, zodat ze naast het (positieve) budget gelegd kunnen worden. Interne
 overschrijvingen tellen niet mee. Een transactie telt in de maand van haar
-effective_date (budgetmaand), niet per se de uitvoeringsdatum — zoals in de
-Excel, waar loon van eind december voor januari telt.
+effective_date (budgetmaand) — zoals in de Excel, waar loon van eind
+december voor januari telt.
+
+month=None = het hele jaar ("Total Year" in de oude Excel). Het antwoord
+bevat altijd de 12 maandtotalen per type, voor de staafgrafiek.
 """
 
 from datetime import date
@@ -16,14 +19,8 @@ from sqlalchemy.orm import Session
 
 from app.models import Budget, Category, Context, Transaction
 from app.models.enums import CategoryType
-from app.schemas.dashboard import CategoryStatus, DashboardOut, TypeTotal
+from app.schemas.dashboard import CategoryStatus, DashboardOut, MonthTotals, TypeTotal
 from app.services.budget import TYPE_ORDER, ZERO, compute_tba, to_cents
-
-
-def _month_bounds(year: int, month: int) -> tuple[date, date]:
-    start = date(year, month, 1)
-    end = date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)
-    return start, end
 
 
 def _actual_magnitude(tx_type: CategoryType, amount: Decimal) -> Decimal:
@@ -31,36 +28,56 @@ def _actual_magnitude(tx_type: CategoryType, amount: Decimal) -> Decimal:
     return amount if tx_type == CategoryType.INKOMEN else -amount
 
 
-def build_dashboard(db: Session, context: Context, year: int, month: int) -> DashboardOut:
+def build_dashboard(
+    db: Session, context: Context, year: int, month: int | None = None
+) -> DashboardOut:
     categories = db.scalars(
         select(Category)
         .where(Category.context_id == context.id, Category.active)
         .order_by(Category.sort_order, Category.id)
     ).all()
+    type_of = {c.id: c.type for c in categories}
 
+    # Volledig jaar ophalen; de periode-filter (maand of jaar) gebeurt in Python.
     budget_rows = db.scalars(
         select(Budget)
         .join(Category, Budget.category_id == Category.id)
-        .where(Category.context_id == context.id, Budget.year == year, Budget.month == month)
+        .where(Category.context_id == context.id, Budget.year == year)
     ).all()
-    budget_per_category = {row.category_id: row.amount for row in budget_rows}
-
-    start, end = _month_bounds(year, month)
     transactions = db.scalars(
         select(Transaction).where(
             Transaction.context_id == context.id,
-            Transaction.effective_date >= start,
-            Transaction.effective_date < end,
+            Transaction.effective_date >= date(year, 1, 1),
+            Transaction.effective_date < date(year + 1, 1, 1),
             Transaction.is_internal_transfer.is_(False),
         )
     ).all()
 
+    def in_period(m: int) -> bool:
+        return month is None or m == month
+
+    monthly_budget: dict[int, dict[CategoryType, Decimal]] = {
+        m: dict.fromkeys(TYPE_ORDER, ZERO) for m in range(1, 13)
+    }
+    monthly_actual: dict[int, dict[CategoryType, Decimal]] = {
+        m: dict.fromkeys(TYPE_ORDER, ZERO) for m in range(1, 13)
+    }
+
+    budget_per_category: dict[int, Decimal] = {}
+    for row in budget_rows:
+        monthly_budget[row.month][type_of[row.category_id]] += row.amount
+        if in_period(row.month):
+            budget_per_category[row.category_id] = (
+                budget_per_category.get(row.category_id, ZERO) + row.amount
+            )
+
     actual_per_category: dict[int, Decimal] = {}
-    actual_per_type: dict[CategoryType, Decimal] = dict.fromkeys(TYPE_ORDER, ZERO)
     uncategorized = 0
     for tx in transactions:
         magnitude = _actual_magnitude(tx.type, tx.amount)
-        actual_per_type[tx.type] += magnitude
+        monthly_actual[tx.effective_date.month][tx.type] += magnitude
+        if not in_period(tx.effective_date.month):
+            continue
         if tx.category_id is None:
             uncategorized += 1
         else:
@@ -69,19 +86,24 @@ def build_dashboard(db: Session, context: Context, year: int, month: int) -> Das
             )
 
     budget_per_type: dict[CategoryType, Decimal] = dict.fromkeys(TYPE_ORDER, ZERO)
-    category_rows: list[CategoryStatus] = []
-    for category in categories:
-        budget = budget_per_category.get(category.id, ZERO)
-        budget_per_type[category.type] += budget
-        category_rows.append(
-            CategoryStatus(
-                category_id=category.id,
-                name=category.name,
-                type=category.type,
-                budget_cents=to_cents(budget),
-                actual_cents=to_cents(actual_per_category.get(category.id, ZERO)),
-            )
+    actual_per_type: dict[CategoryType, Decimal] = dict.fromkeys(TYPE_ORDER, ZERO)
+    for m in range(1, 13):
+        if not in_period(m):
+            continue
+        for cat_type in TYPE_ORDER:
+            budget_per_type[cat_type] += monthly_budget[m][cat_type]
+            actual_per_type[cat_type] += monthly_actual[m][cat_type]
+
+    category_rows = [
+        CategoryStatus(
+            category_id=category.id,
+            name=category.name,
+            type=category.type,
+            budget_cents=to_cents(budget_per_category.get(category.id, ZERO)),
+            actual_cents=to_cents(actual_per_category.get(category.id, ZERO)),
         )
+        for category in categories
+    ]
 
     tba = compute_tba(
         budget_per_type[CategoryType.INKOMEN],
@@ -103,4 +125,18 @@ def build_dashboard(db: Session, context: Context, year: int, month: int) -> Das
         ],
         categories=category_rows,
         uncategorized_count=uncategorized,
+        months=[
+            MonthTotals(
+                month=m,
+                totals=[
+                    TypeTotal(
+                        type=cat_type,
+                        budget_cents=to_cents(monthly_budget[m][cat_type]),
+                        actual_cents=to_cents(monthly_actual[m][cat_type]),
+                    )
+                    for cat_type in TYPE_ORDER
+                ],
+            )
+            for m in range(1, 13)
+        ],
     )
