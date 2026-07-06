@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { api } from '../api/client'
 import type { Category, CategoryType, Transaction, TransactionPayload } from '../api/types'
 import PeriodPicker, { currentPeriod, type Period } from '../components/PeriodPicker'
@@ -29,7 +29,9 @@ export default function Transactions() {
   const [categoryFilter, setCategoryFilter] = useState<number | ''>('')
   const [categories, setCategories] = useState<Category[]>([])
   const [transactions, setTransactions] = useState<Transaction[] | null>(null)
+  const [editing, setEditing] = useState<Transaction | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const formRef = useRef<HTMLElement>(null)
 
   useEffect(() => {
     if (contextId === null) return
@@ -57,6 +59,25 @@ export default function Transactions() {
 
   const filterCategories = categories.filter((c) => !typeFilter || c.type === typeFilter)
 
+  function startEdit(tx: Transaction) {
+    setEditing(tx)
+    formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
+  async function remove(tx: Transaction) {
+    const omschrijving = tx.description ? ` "${tx.description}"` : ''
+    if (!window.confirm(`Transactie${omschrijving} van ${formatDate(tx.date)} verwijderen?`)) {
+      return
+    }
+    try {
+      await api<void>(`/api/transactions/${tx.id}`, { method: 'DELETE' })
+      if (editing?.id === tx.id) setEditing(null)
+      load()
+    } catch {
+      setError('Verwijderen mislukt — probeer opnieuw')
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
@@ -68,7 +89,17 @@ export default function Transactions() {
         </div>
       </div>
 
-      <TransactionForm contextId={contextId} categories={categories} onSaved={load} />
+      <TransactionForm
+        ref={formRef}
+        contextId={contextId}
+        categories={categories}
+        editing={editing}
+        onCancelEdit={() => setEditing(null)}
+        onSaved={() => {
+          setEditing(null)
+          load()
+        }}
+      />
 
       {error && (
         <div className="rounded-2xl border border-edge bg-surface p-6 text-sm text-ink-2">
@@ -125,7 +156,7 @@ export default function Transactions() {
               Nog geen transacties in deze periode.
             </p>
           ) : (
-            <TransactionTable transactions={transactions} />
+            <TransactionTable transactions={transactions} onEdit={startEdit} onDelete={remove} />
           )}
         </section>
       )}
@@ -134,12 +165,18 @@ export default function Transactions() {
 }
 
 function TransactionForm({
+  ref,
   contextId,
   categories,
+  editing,
+  onCancelEdit,
   onSaved,
 }: {
+  ref: React.RefObject<HTMLElement | null>
   contextId: number
   categories: Category[]
+  editing: Transaction | null
+  onCancelEdit: () => void
   onSaved: () => void
 }) {
   const [date, setDate] = useState(todayIso)
@@ -154,6 +191,21 @@ function TransactionForm({
 
   // Context-wissel: categorie-keuze hoort bij de oude context, dus resetten.
   useEffect(() => setCategoryId(''), [contextId])
+
+  // Edit-modus: formulier vullen met de transactie (bedrag terug als magnitude).
+  useEffect(() => {
+    if (editing === null) return
+    const magnitude =
+      editing.type === 'Inkomen' ? editing.amount_cents : -editing.amount_cents
+    setDate(editing.date)
+    setType(editing.type)
+    setCategoryId(editing.category_id ?? '')
+    setAmountText(formatCentsPlain(magnitude))
+    setDescription(editing.description ?? '')
+    setEffectiveDate(editing.effective_date !== editing.date ? editing.effective_date : '')
+    setAmountInvalid(false)
+    setSaveError(null)
+  }, [editing])
 
   const typeCategories = categories.filter((c) => c.type === type)
 
@@ -182,10 +234,17 @@ function TransactionForm({
       description: description.trim() || null,
     }
     try {
-      await api<Transaction>('/api/transactions', {
-        method: 'POST',
-        body: JSON.stringify(payload),
-      })
+      if (editing) {
+        await api<void>(`/api/transactions/${editing.id}`, {
+          method: 'PUT',
+          body: JSON.stringify(payload),
+        })
+      } else {
+        await api<Transaction>('/api/transactions', {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        })
+      }
       // datum blijft staan voor snelle reeksinvoer
       setAmountText('')
       setDescription('')
@@ -198,9 +257,20 @@ function TransactionForm({
     }
   }
 
+  function cancelEdit() {
+    setAmountText('')
+    setDescription('')
+    setEffectiveDate('')
+    setAmountInvalid(false)
+    setSaveError(null)
+    onCancelEdit()
+  }
+
   return (
-    <section className="rounded-2xl border border-edge bg-surface p-5">
-      <h2 className="text-sm font-medium">Transactie toevoegen</h2>
+    <section ref={ref} className="rounded-2xl border border-edge bg-surface p-5">
+      <h2 className="text-sm font-medium">
+        {editing ? 'Transactie bewerken' : 'Transactie toevoegen'}
+      </h2>
       <form onSubmit={submit} className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
         <label className="block">
           <span className="mb-1 block text-xs uppercase tracking-wide text-ink-3">Datum</span>
@@ -286,8 +356,17 @@ function TransactionForm({
             disabled={saving}
             className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent/85 disabled:opacity-50"
           >
-            Toevoegen
+            {editing ? 'Opslaan' : 'Toevoegen'}
           </button>
+          {editing && (
+            <button
+              type="button"
+              onClick={cancelEdit}
+              className="rounded-lg border border-edge bg-surface px-3 py-2 text-sm text-ink-2 hover:bg-raised"
+            >
+              Annuleren
+            </button>
+          )}
           {saveError && <p className="text-sm text-crit">{saveError}</p>}
         </div>
       </form>
@@ -295,16 +374,25 @@ function TransactionForm({
   )
 }
 
-function TransactionTable({ transactions }: { transactions: Transaction[] }) {
+function TransactionTable({
+  transactions,
+  onEdit,
+  onDelete,
+}: {
+  transactions: Transaction[]
+  onEdit: (tx: Transaction) => void
+  onDelete: (tx: Transaction) => void
+}) {
   return (
-    <table className="w-full min-w-[640px] text-sm">
+    <table className="w-full min-w-[720px] text-sm">
       <thead>
         <tr className="border-b border-line text-xs text-ink-3">
           <th className="px-5 py-3 text-left font-medium">Datum</th>
           <th className="px-3 py-3 text-left font-medium">Type</th>
           <th className="px-3 py-3 text-left font-medium">Categorie</th>
           <th className="px-3 py-3 text-left font-medium">Omschrijving</th>
-          <th className="px-5 py-3 text-right font-medium">Bedrag</th>
+          <th className="px-3 py-3 text-right font-medium">Bedrag</th>
+          <th className="px-5 py-3" />
         </tr>
       </thead>
       <tbody className="tabular-nums">
@@ -331,8 +419,22 @@ function TransactionTable({ transactions }: { transactions: Transaction[] }) {
               {tx.category_name ?? <span className="text-ink-3">–</span>}
             </td>
             <td className="max-w-64 truncate px-3 py-2 text-ink-2">{tx.description ?? ''}</td>
-            <td className="whitespace-nowrap px-5 py-2 text-right">
+            <td className="whitespace-nowrap px-3 py-2 text-right">
               {formatCentsPlain(tx.amount_cents)}
+            </td>
+            <td className="whitespace-nowrap px-5 py-2 text-right">
+              <button
+                onClick={() => onEdit(tx)}
+                className="text-xs text-ink-3 hover:text-ink-2 hover:underline"
+              >
+                Bewerken
+              </button>
+              <button
+                onClick={() => onDelete(tx)}
+                className="ml-3 text-xs text-ink-3 hover:text-crit hover:underline"
+              >
+                Verwijderen
+              </button>
             </td>
           </tr>
         ))}
