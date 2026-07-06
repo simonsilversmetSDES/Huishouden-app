@@ -42,7 +42,7 @@ def test_seed_creates_expected_rows(session: Session, settings: Settings) -> Non
     seed_all(session, settings)
     assert counts(session) == {
         "contexts": 3,
-        "categories": 63,  # 21 categorieën × 3 contexten
+        "categories": 65,  # 21 categorieën × 3 contexten + "Loon" (Simon, Jozefien)
         "accounts": 5,
         "users": 2,
     }
@@ -67,7 +67,9 @@ def test_categories_per_context(session: Session, settings: Settings) -> None:
         ctx = session.scalars(select(Context).where(Context.name == context_name)).one()
         cats = session.scalars(select(Category).where(Category.context_id == ctx.id)).all()
         by_type = {t: [c for c in cats if c.type == t] for t in CategoryType}
-        assert len(by_type[CategoryType.INKOMEN]) == 5
+        # Simon en Jozefien hebben bovenop de startlijst de categorie "Loon"
+        verwacht_inkomen = 5 if context_name == "Gemeenschappelijk" else 6
+        assert len(by_type[CategoryType.INKOMEN]) == verwacht_inkomen
         assert len(by_type[CategoryType.UITGAVEN]) == 14
         assert len(by_type[CategoryType.SPAREN]) == 2
         # Spec-volgorde bewaard via sort_order
