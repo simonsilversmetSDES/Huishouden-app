@@ -13,6 +13,7 @@ from app.config import Settings, get_settings
 from app.database import SessionLocal
 from app.models import Account, Category, Context, User
 from app.models.enums import AccountType, Bank, CategoryType
+from app.services.csv_parsers import normalize_iban
 
 logger = logging.getLogger(__name__)
 
@@ -49,9 +50,13 @@ CATEGORIES: dict[CategoryType, list[str]] = {
     ],
 }
 
+# (context, naam, bank, type, Settings-veld met het IBAN uit .env)
 ACCOUNTS = [
-    ("Gemeenschappelijk", "KBC Zichtrekening", Bank.KBC, AccountType.ZICHT),
-    ("Simon", "Fortis Zichtrekening", Bank.FORTIS, AccountType.ZICHT),
+    ("Gemeenschappelijk", "KBC Zichtrekening", Bank.KBC, AccountType.ZICHT, "kbc_zicht"),
+    ("Gemeenschappelijk", "KBC Spaarrekening", Bank.KBC, AccountType.SPAAR, "kbc_spaar"),
+    ("Simon", "Fortis Zichtrekening", Bank.FORTIS, AccountType.ZICHT, "fortis_zicht"),
+    ("Simon", "Fortis Spaarrekening", Bank.FORTIS, AccountType.SPAAR, "fortis_spaar"),
+    ("Jozefien", "KBC Zichtrekening", Bank.KBC, AccountType.ZICHT, "jozefien_zicht"),
 ]
 
 
@@ -86,14 +91,18 @@ def seed_categories(db: Session, contexts: dict[str, Context]) -> None:
                 sort_order += 1
 
 
-def seed_accounts(db: Session, contexts: dict[str, Context]) -> None:
-    for context_name, name, bank, acc_type in ACCOUNTS:
+def seed_accounts(db: Session, contexts: dict[str, Context], settings: Settings) -> None:
+    """Rekeningen aanmaken en IBAN's bijwerken vanuit .env (zoals seed_users)."""
+    for context_name, name, bank, acc_type, iban_setting in ACCOUNTS:
         ctx = contexts[context_name]
-        exists = db.scalars(
+        iban = normalize_iban(getattr(settings, f"account_iban_{iban_setting}")) or None
+        account = db.scalars(
             select(Account).where(Account.context_id == ctx.id, Account.name == name)
         ).one_or_none()
-        if exists is None:
-            db.add(Account(context_id=ctx.id, name=name, bank=bank, type=acc_type))
+        if account is None:
+            db.add(Account(context_id=ctx.id, name=name, bank=bank, type=acc_type, iban=iban))
+        elif iban and account.iban != iban:
+            account.iban = iban
 
 
 def seed_users(db: Session, settings: Settings) -> None:
@@ -115,7 +124,7 @@ def seed_users(db: Session, settings: Settings) -> None:
 def seed_all(db: Session, settings: Settings) -> None:
     contexts = seed_contexts(db)
     seed_categories(db, contexts)
-    seed_accounts(db, contexts)
+    seed_accounts(db, contexts, settings)
     seed_users(db, settings)
     db.commit()
 

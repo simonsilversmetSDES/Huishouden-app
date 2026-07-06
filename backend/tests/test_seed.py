@@ -43,7 +43,7 @@ def test_seed_creates_expected_rows(session: Session, settings: Settings) -> Non
     assert counts(session) == {
         "contexts": 3,
         "categories": 63,  # 21 categorieën × 3 contexten
-        "accounts": 2,
+        "accounts": 5,
         "users": 2,
     }
 
@@ -78,12 +78,39 @@ def test_categories_per_context(session: Session, settings: Settings) -> None:
 
 def test_accounts(session: Session, settings: Settings) -> None:
     seed_all(session, settings)
-    kbc = session.scalars(select(Account).where(Account.bank == Bank.KBC)).one()
-    fortis = session.scalars(select(Account).where(Account.bank == Bank.FORTIS)).one()
-    assert kbc.context.name == "Gemeenschappelijk"
-    assert kbc.type == AccountType.ZICHT
-    assert fortis.context.name == "Simon"
-    assert fortis.type == AccountType.ZICHT
+    accounts = {
+        (a.context.name, a.name): (a.bank, a.type) for a in session.scalars(select(Account)).all()
+    }
+    assert accounts == {
+        ("Gemeenschappelijk", "KBC Zichtrekening"): (Bank.KBC, AccountType.ZICHT),
+        ("Gemeenschappelijk", "KBC Spaarrekening"): (Bank.KBC, AccountType.SPAAR),
+        ("Simon", "Fortis Zichtrekening"): (Bank.FORTIS, AccountType.ZICHT),
+        ("Simon", "Fortis Spaarrekening"): (Bank.FORTIS, AccountType.SPAAR),
+        ("Jozefien", "KBC Zichtrekening"): (Bank.KBC, AccountType.ZICHT),
+    }
+
+
+def test_account_ibans_from_settings(session: Session, settings: Settings) -> None:
+    """IBAN's komen genormaliseerd uit .env; leeg = geen IBAN."""
+    settings.account_iban_kbc_zicht = "be71 0961 2345 6769"
+    seed_all(session, settings)
+    kbc_zicht = session.scalars(
+        select(Account).where(Account.name == "KBC Zichtrekening", Account.iban.is_not(None))
+    ).one()
+    assert kbc_zicht.iban == "BE71096123456769"
+    assert kbc_zicht.context.name == "Gemeenschappelijk"
+    zonder_iban = session.scalars(select(Account).where(Account.iban.is_(None))).all()
+    assert len(zonder_iban) == 4
+
+
+def test_account_iban_updated_on_change(session: Session, settings: Settings) -> None:
+    """IBAN later invullen of corrigeren in .env werkt op een bestaande rekening."""
+    seed_all(session, settings)
+    settings.account_iban_fortis_zicht = "BE68539007547034"
+    seed_all(session, settings)
+    fortis = session.scalars(select(Account).where(Account.name == "Fortis Zichtrekening")).one()
+    assert fortis.iban == "BE68539007547034"
+    assert counts(session)["accounts"] == 5
 
 
 def test_users_from_settings(session: Session, settings: Settings) -> None:
