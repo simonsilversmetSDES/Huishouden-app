@@ -22,6 +22,9 @@ export default function AppShell() {
             <NavLink to="/" end className={navLinkClass}>
               Dashboard
             </NavLink>
+            <NavLink to="/transacties" className={navLinkClass}>
+              Transacties
+            </NavLink>
             <NavLink to="/budget" className={navLinkClass}>
               Budget
             </NavLink>

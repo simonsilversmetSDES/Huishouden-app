@@ -5,6 +5,7 @@ import AppShell from './components/AppShell'
 import Budget from './pages/Budget'
 import Dashboard from './pages/Dashboard'
 import Login from './pages/Login'
+import Transactions from './pages/Transactions'
 import { AppStateProvider } from './state/AppState'
 
 function RequireAuth({ children }: { children: ReactNode }) {
@@ -40,6 +41,7 @@ export default function App() {
             }
           >
             <Route path="/" element={<Dashboard />} />
+            <Route path="/transacties" element={<Transactions />} />
             <Route path="/budget" element={<Budget />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />

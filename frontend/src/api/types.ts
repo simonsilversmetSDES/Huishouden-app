@@ -65,3 +65,35 @@ export interface BudgetCellUpdate {
   month: number
   amount_cents: number
 }
+
+export interface Category {
+  id: number
+  name: string
+  type: CategoryType
+}
+
+export interface Transaction {
+  id: number
+  context_id: number
+  date: string // ISO
+  effective_date: string // ISO; budgetmaand, kan afwijken van date
+  type: CategoryType
+  amount_cents: number // signed: + = inkomen, − = uitgave/sparen
+  category_id: number | null
+  category_name: string | null
+  description: string | null
+  source: string
+  is_internal_transfer: boolean
+}
+
+// POST/PUT-payload: amount_cents is een positieve magnitude; de server
+// past het teken toe op basis van type (negatief mag = correctie).
+export interface TransactionPayload {
+  context_id: number
+  date: string
+  effective_date: string | null
+  type: CategoryType
+  amount_cents: number
+  category_id: number | null
+  description: string | null
+}
