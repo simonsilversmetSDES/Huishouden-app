@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 
-from app.routes import auth, budgets, categories, contexts, dashboard, health
+from app.routes import auth, budgets, categories, contexts, dashboard, health, transactions
 
 app = FastAPI(
     title="Huishouden-app",
@@ -15,3 +15,4 @@ app.include_router(contexts.router)
 app.include_router(categories.router)
 app.include_router(budgets.router)
 app.include_router(dashboard.router)
+app.include_router(transactions.router)
