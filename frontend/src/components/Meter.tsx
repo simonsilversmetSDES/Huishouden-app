@@ -1,11 +1,14 @@
-// Meter volgens de dataviz-spec: de vulling draagt de status, de lege track is
-// dezelfde tint op lage dekking (blauw-op-blauw), zodat de hele balk als één
-// systeem leest. Status komt nooit uit kleur alleen — de rijtekst ernaast
-// benoemt de toestand.
+// Meter volgens de dataviz-spec: de vulling draagt de betekenis, de lege track
+// is dezelfde tint op lage dekking. De typekleuren volgen de oude Excel
+// (Inkomen groen, Uitgaven oranje, Sparen blauw); status komt nooit uit kleur
+// alleen — de tekst ernaast benoemt de toestand.
 
-export type MeterTone = 'accent' | 'good' | 'warn' | 'crit'
+export type MeterTone = 'income' | 'expense' | 'saving' | 'accent' | 'good' | 'warn' | 'crit'
 
-const TONE_HEX: Record<MeterTone, string> = {
+export const TONE_HEX: Record<MeterTone, string> = {
+  income: '#008300',
+  expense: '#eb6834',
+  saving: '#2a78d6',
   accent: '#2a78d6',
   good: '#008300',
   warn: '#d97706',
@@ -26,7 +29,7 @@ export default function Meter({ value, max, tone }: MeterProps) {
   return (
     <div
       className="h-1.5 w-full overflow-hidden rounded-full"
-      style={{ backgroundColor: `${hex}2e` }}
+      style={{ backgroundColor: `${hex}26` }}
     >
       <div
         className="h-full rounded-full transition-[width] duration-300"
@@ -40,16 +43,8 @@ export default function Meter({ value, max, tone }: MeterProps) {
   )
 }
 
-/** Statuslogica voor uitgaven-categorieën: onder 85 % rustig, dan waarschuwing, boven budget kritiek. */
+/** Uitgaven: binnen budget in de typekleur, boven budget kritiek. */
 export function spendingTone(actual: number, budget: number): MeterTone {
-  if (budget <= 0) return actual > 0 ? 'crit' : 'accent'
-  const fraction = actual / budget
-  if (fraction > 1) return 'crit'
-  if (fraction >= 0.85) return 'warn'
-  return 'accent'
-}
-
-/** Inkomen/Sparen: doel gehaald is goed nieuws. */
-export function fundingTone(actual: number, budget: number): MeterTone {
-  return budget > 0 && actual >= budget ? 'good' : 'accent'
+  if (budget <= 0) return actual > 0 ? 'crit' : 'expense'
+  return actual > budget ? 'crit' : 'expense'
 }

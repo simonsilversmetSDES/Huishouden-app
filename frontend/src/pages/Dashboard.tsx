@@ -1,19 +1,17 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api/client'
-import type { CategoryStatus, CategoryType, DashboardData } from '../api/types'
-import Meter, { fundingTone, spendingTone, type MeterTone } from '../components/Meter'
-import { formatCents, formatMonthYear } from '../lib/format'
+import type { CategoryStatus, CategoryType, DashboardData, TypeTotal } from '../api/types'
+import DonutCard from '../components/DonutCard'
+import Meter, { spendingTone, type MeterTone } from '../components/Meter'
+import PeriodPicker, { currentPeriod, type Period } from '../components/PeriodPicker'
+import TrackedVsBudget from '../components/TrackedVsBudget'
+import { formatCents, formatCentsPlain, formatMonthYear } from '../lib/format'
 import { useAppState } from '../state/AppState'
 
-const TONE_TEXT: Record<MeterTone, string> = {
-  accent: 'text-accent',
-  good: 'text-good',
-  warn: 'text-warn',
-  crit: 'text-crit',
-}
+const pctFmt = new Intl.NumberFormat('nl-BE', { maximumFractionDigits: 1 })
 
-function toneDot(tone: MeterTone) {
+function toneDot(tone: 'good' | 'warn' | 'crit' | 'accent') {
   return (
     <span
       aria-hidden
@@ -24,71 +22,31 @@ function toneDot(tone: MeterTone) {
   )
 }
 
-interface Period {
-  year: number
-  month: number
-}
-
-function currentPeriod(): Period {
-  const now = new Date()
-  return { year: now.getFullYear(), month: now.getMonth() + 1 }
-}
-
-function shiftPeriod({ year, month }: Period, delta: number): Period {
-  const index = year * 12 + (month - 1) + delta
-  return { year: Math.floor(index / 12), month: (index % 12) + 1 }
-}
-
 export default function Dashboard() {
   const { contextId } = useAppState()
-  const [period, setPeriod] = useState<Period>(currentPeriod)
+  const [period, setPeriod] = useState<Period>(() => currentPeriod())
   const [data, setData] = useState<DashboardData | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const load = useCallback(() => {
     if (contextId === null) return
     setError(null)
-    api<DashboardData>(
-      `/api/dashboard?context_id=${contextId}&year=${period.year}&month=${period.month}`,
-    )
+    const monthParam = period.mode === 'maand' ? `&month=${period.month}` : ''
+    api<DashboardData>(`/api/dashboard?context_id=${contextId}&year=${period.year}${monthParam}`)
       .then(setData)
       .catch(() => setError('Dashboard laden mislukt — probeer opnieuw'))
   }, [contextId, period])
 
   useEffect(load, [load])
 
-  const now = currentPeriod()
-  const isCurrentMonth = period.year === now.year && period.month === now.month
-
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-3">
         <h1 className="text-lg font-semibold capitalize">
-          {formatMonthYear(period.year, period.month)}
+          {period.mode === 'maand' ? formatMonthYear(period.year, period.month) : period.year}
         </h1>
-        <div className="ml-auto flex items-center gap-1">
-          {!isCurrentMonth && (
-            <button
-              onClick={() => setPeriod(currentPeriod())}
-              className="rounded-lg px-2.5 py-1.5 text-sm text-ink-3 hover:bg-surface hover:text-ink-2"
-            >
-              Vandaag
-            </button>
-          )}
-          <button
-            onClick={() => setPeriod((p) => shiftPeriod(p, -1))}
-            aria-label="Vorige maand"
-            className="rounded-lg border border-edge bg-surface px-3 py-1.5 text-sm text-ink-2 hover:bg-raised"
-          >
-            ‹
-          </button>
-          <button
-            onClick={() => setPeriod((p) => shiftPeriod(p, 1))}
-            aria-label="Volgende maand"
-            className="rounded-lg border border-edge bg-surface px-3 py-1.5 text-sm text-ink-2 hover:bg-raised"
-          >
-            ›
-          </button>
+        <div className="ml-auto">
+          <PeriodPicker period={period} onChange={setPeriod} />
         </div>
       </div>
 
@@ -109,60 +67,96 @@ export default function Dashboard() {
 
 function DashboardBody({ data }: { data: DashboardData }) {
   const tba = data.to_be_allocated_cents
-  const tbaTone: MeterTone = tba === 0 ? 'good' : tba > 0 ? 'accent' : 'crit'
-  const tbaLabel =
-    tba === 0
-      ? 'Alles is verdeeld — zero-based'
-      : tba > 0
-        ? 'nog niet toegewezen in het budget'
-        : 'te veel gepland tegenover het inkomen'
+  const tbaTone = tba === 0 ? 'good' : tba > 0 ? 'accent' : 'crit'
+  const periodWord = data.month === null ? 'dit jaar' : 'deze maand'
 
   const totals = new Map(data.type_totals.map((t) => [t.type, t]))
   const inkomen = totals.get('Inkomen')
   const uitgaven = totals.get('Uitgaven')
   const sparen = totals.get('Sparen')
 
+  const savingsRate =
+    inkomen && sparen && inkomen.actual_cents > 0 && sparen.actual_cents > 0
+      ? (sparen.actual_cents / inkomen.actual_cents) * 100
+      : null
+
   const hasAnything =
     data.type_totals.some((t) => t.budget_cents !== 0 || t.actual_cents !== 0) ||
     data.uncategorized_count > 0
 
+  const donutRows = (type: CategoryType) =>
+    data.categories
+      .filter((c) => c.type === type)
+      .map((c) => ({ name: c.name, cents: c.actual_cents }))
+
   return (
     <div className="space-y-4">
-      {/* TBA-hero: het belangrijkste cijfer van de maand */}
-      <section className="rounded-2xl border border-edge bg-surface p-6">
-        <p className="text-sm text-ink-3">Te verdelen (to be allocated)</p>
-        <p className="mt-1 text-5xl font-semibold tracking-tight">{formatCents(tba)}</p>
-        <p className="mt-3 flex items-center gap-2 text-sm">
-          {toneDot(tbaTone)}
-          <span className={tba === 0 ? TONE_TEXT.good : 'text-ink-2'}>
-            {tba === 0 ? tbaLabel : `${formatCents(Math.abs(tba))} ${tbaLabel}`}
-          </span>
-        </p>
-      </section>
-
-      {/* Budget-status per type */}
-      <section className="grid gap-4 sm:grid-cols-3">
-        {inkomen && <TypeTile label="Inkomen" total={inkomen} isSpending={false} />}
-        {uitgaven && <TypeTile label="Uitgaven" total={uitgaven} isSpending />}
-        {sparen && <TypeTile label="Sparen" total={sparen} isSpending={false} />}
+      {/* TBA + type-tegels */}
+      <section className="grid gap-4 lg:grid-cols-4">
+        <div className="rounded-2xl border border-edge bg-surface p-5">
+          <p className="text-sm text-ink-3">Te verdelen</p>
+          <p className="mt-1 text-3xl font-semibold tracking-tight">{formatCents(tba)}</p>
+          <p className="mt-2 flex items-center gap-2 text-xs text-ink-2">
+            {toneDot(tbaTone)}
+            {tba === 0
+              ? 'alles is verdeeld'
+              : tba > 0
+                ? `nog niet toegewezen ${periodWord}`
+                : `te veel gepland ${periodWord}`}
+          </p>
+        </div>
+        {inkomen && <TypeTile label="Inkomen" total={inkomen} tone="income" />}
+        {uitgaven && (
+          <TypeTile
+            label="Uitgaven"
+            total={uitgaven}
+            tone={spendingTone(uitgaven.actual_cents, uitgaven.budget_cents)}
+          />
+        )}
+        {sparen && (
+          <TypeTile
+            label="Sparen"
+            total={sparen}
+            tone="saving"
+            extra={
+              savingsRate !== null
+                ? `je spaart ${pctFmt.format(savingsRate)} % van je inkomen`
+                : undefined
+            }
+          />
+        )}
       </section>
 
       {data.uncategorized_count > 0 && (
         <div className="flex items-center gap-2 rounded-2xl border border-edge bg-surface px-4 py-3 text-sm text-ink-2">
           {toneDot('warn')}
           {data.uncategorized_count === 1
-            ? '1 transactie zonder categorie deze maand'
-            : `${data.uncategorized_count} transacties zonder categorie deze maand`}
+            ? `1 transactie zonder categorie ${periodWord}`
+            : `${data.uncategorized_count} transacties zonder categorie ${periodWord}`}
         </div>
       )}
 
       {hasAnything ? (
-        <CategoryList categories={data.categories} />
+        <>
+          {/* Grafieken zoals in de Excel */}
+          <section className="grid gap-4 lg:grid-cols-2">
+            <DonutCard title="Inkomen per categorie" kind="income" rows={donutRows('Inkomen')} />
+            <TrackedVsBudget months={data.months} selectedMonth={data.month} />
+            <DonutCard
+              title="Uitgaven per categorie"
+              kind="expense"
+              rows={donutRows('Uitgaven')}
+            />
+            <DonutCard title="Sparen per categorie" kind="saving" rows={donutRows('Sparen')} />
+          </section>
+
+          <CategoryTable categories={data.categories} />
+        </>
       ) : (
         <section className="rounded-2xl border border-dashed border-edge bg-surface p-8 text-center">
-          <p className="text-ink-2">Nog geen budget of transacties voor deze maand.</p>
+          <p className="text-ink-2">Nog geen budget of transacties in deze periode.</p>
           <p className="mt-2 text-sm text-ink-3">
-            Zet je maandbudget op de{' '}
+            Zet je budget op de{' '}
             <Link to="/budget" className="text-accent hover:underline">
               Budget-pagina
             </Link>
@@ -177,14 +171,15 @@ function DashboardBody({ data }: { data: DashboardData }) {
 function TypeTile({
   label,
   total,
-  isSpending,
+  tone,
+  extra,
 }: {
   label: string
-  total: { budget_cents: number; actual_cents: number }
-  isSpending: boolean
+  total: TypeTotal
+  tone: MeterTone
+  extra?: string
 }) {
   const { budget_cents: budget, actual_cents: actual } = total
-  const tone = isSpending ? spendingTone(actual, budget) : fundingTone(actual, budget)
   const pct = budget > 0 ? Math.round((actual / budget) * 100) : null
   return (
     <div className="rounded-2xl border border-edge bg-surface p-5">
@@ -198,40 +193,41 @@ function TypeTile({
       </div>
       <p className="mt-2 text-xs text-ink-3">
         {budget > 0 ? `van ${formatCents(budget)} gebudgetteerd` : 'geen budget ingesteld'}
+        {extra ? ` · ${extra}` : ''}
       </p>
     </div>
   )
 }
 
-const SECTION_ORDER: CategoryType[] = ['Uitgaven', 'Inkomen', 'Sparen']
+const SECTION_ORDER: CategoryType[] = ['Inkomen', 'Uitgaven', 'Sparen']
 
-function CategoryList({ categories }: { categories: CategoryStatus[] }) {
+function CategoryTable({ categories }: { categories: CategoryStatus[] }) {
   const visible = categories.filter((c) => c.budget_cents !== 0 || c.actual_cents !== 0)
   const hidden = categories.length - visible.length
 
   return (
-    <section className="rounded-2xl border border-edge bg-surface">
-      <h2 className="border-b border-line px-5 py-4 text-sm font-medium text-ink-2">
-        Budget vs. werkelijk
-      </h2>
-      <div className="divide-y divide-line">
-        {SECTION_ORDER.map((type) => {
-          const rows = visible.filter((c) => c.type === type)
-          if (rows.length === 0) return null
-          return (
-            <div key={type} className="px-5 py-4">
-              <h3 className="mb-3 text-xs font-medium uppercase tracking-wide text-ink-3">
-                {type}
-              </h3>
-              <ul className="space-y-3">
-                {rows.map((row) => (
-                  <CategoryRow key={row.category_id} row={row} />
-                ))}
-              </ul>
-            </div>
-          )
-        })}
-      </div>
+    <section className="overflow-x-auto rounded-2xl border border-edge bg-surface">
+      <table className="w-full min-w-[640px] text-sm">
+        <thead>
+          <tr className="border-b border-line text-xs text-ink-3">
+            <th className="px-5 py-3 text-left font-medium">Budget vs. werkelijk</th>
+            <th className="px-3 py-3 text-right font-medium">Werkelijk</th>
+            <th className="px-3 py-3 text-right font-medium">Budget</th>
+            <th className="px-3 py-3 text-right font-medium">%</th>
+            <th className="px-3 py-3 text-right font-medium">Resterend</th>
+            <th className="px-5 py-3 text-right font-medium">Boven budget</th>
+          </tr>
+        </thead>
+        <tbody className="tabular-nums">
+          {SECTION_ORDER.map((type) => {
+            const rows = visible.filter((c) => c.type === type)
+            if (rows.length === 0) return null
+            return (
+              <SectionRows key={type} type={type} rows={rows} />
+            )
+          })}
+        </tbody>
+      </table>
       {hidden > 0 && (
         <p className="border-t border-line px-5 py-3 text-xs text-ink-3">
           {hidden} categorieën zonder budget of activiteit verborgen
@@ -241,26 +237,87 @@ function CategoryList({ categories }: { categories: CategoryStatus[] }) {
   )
 }
 
-function CategoryRow({ row }: { row: CategoryStatus }) {
+function SectionRows({ type, rows }: { type: CategoryType; rows: CategoryStatus[] }) {
+  const sum = (f: (r: CategoryStatus) => number) => rows.reduce((acc, r) => acc + f(r), 0)
+  return (
+    <>
+      <tr>
+        <td
+          colSpan={6}
+          className="px-5 pb-1 pt-4 text-xs font-medium uppercase tracking-wide text-ink-3"
+        >
+          {type}
+        </td>
+      </tr>
+      {rows.map((row) => (
+        <TableRow key={row.category_id} row={row} />
+      ))}
+      <tr className="border-b border-line last:border-b-0">
+        <td className="px-5 py-2 text-xs text-ink-3">Totaal {type.toLowerCase()}</td>
+        <td className="px-3 py-2 text-right text-xs font-medium">
+          {formatCentsPlain(sum((r) => r.actual_cents))}
+        </td>
+        <td className="px-3 py-2 text-right text-xs text-ink-2">
+          {formatCentsPlain(sum((r) => r.budget_cents))}
+        </td>
+        <td className="px-3 py-2 text-right text-xs text-ink-2">
+          {pctText(sum((r) => r.actual_cents), sum((r) => r.budget_cents))}
+        </td>
+        <td className="px-3 py-2" />
+        <td className="px-5 py-2" />
+      </tr>
+    </>
+  )
+}
+
+function pctText(actual: number, budget: number): string {
+  return budget > 0 ? `${Math.round((actual / budget) * 100)} %` : '–'
+}
+
+function TableRow({ row }: { row: CategoryStatus }) {
   const isSpending = row.type === 'Uitgaven'
-  const tone = isSpending
+  const tone: MeterTone = isSpending
     ? spendingTone(row.actual_cents, row.budget_cents)
-    : fundingTone(row.actual_cents, row.budget_cents)
-  const over = row.actual_cents - row.budget_cents
+    : row.type === 'Inkomen'
+      ? 'income'
+      : 'saving'
+  const pct = row.budget_cents > 0 ? Math.round((row.actual_cents / row.budget_cents) * 100) : null
+  const remaining = Math.max(row.budget_cents - row.actual_cents, 0)
+  const excess = Math.max(row.actual_cents - row.budget_cents, 0)
+  const pctClass =
+    pct === null
+      ? 'text-ink-3'
+      : isSpending && pct > 100
+        ? 'font-medium text-crit'
+        : !isSpending && pct >= 100
+          ? 'font-medium text-good'
+          : 'text-ink-2'
 
   return (
-    <li>
-      <div className="mb-1.5 flex items-baseline justify-between gap-3 text-sm">
-        <span className="truncate">{row.name}</span>
-        <span className="shrink-0 text-ink-2">
-          {formatCents(row.actual_cents)}
-          <span className="text-ink-3"> / {formatCents(row.budget_cents)}</span>
-          {isSpending && over > 0 && (
-            <span className={`ml-2 ${TONE_TEXT.crit}`}>+{formatCents(over)}</span>
-          )}
-        </span>
-      </div>
-      <Meter value={row.actual_cents} max={row.budget_cents} tone={tone} />
-    </li>
+    <tr className="hover:bg-raised/50">
+      <td className="px-5 py-1.5">
+        <span className="block truncate">{row.name}</span>
+        <div className="mt-1 max-w-44">
+          <Meter value={row.actual_cents} max={row.budget_cents} tone={tone} />
+        </div>
+      </td>
+      <td className="px-3 py-1.5 text-right align-top">{formatCentsPlain(row.actual_cents)}</td>
+      <td className="px-3 py-1.5 text-right align-top text-ink-2">
+        {row.budget_cents !== 0 ? formatCentsPlain(row.budget_cents) : '–'}
+      </td>
+      <td className={`px-3 py-1.5 text-right align-top ${pctClass}`}>
+        {pct !== null ? `${pct} %` : '–'}
+      </td>
+      <td className="px-3 py-1.5 text-right align-top text-ink-2">
+        {row.budget_cents > 0 && remaining > 0 ? formatCentsPlain(remaining) : '–'}
+      </td>
+      <td
+        className={`px-5 py-1.5 text-right align-top ${
+          excess > 0 ? (isSpending ? 'text-crit' : 'text-good') : 'text-ink-2'
+        }`}
+      >
+        {excess > 0 ? formatCentsPlain(excess) : '–'}
+      </td>
+    </tr>
   )
 }

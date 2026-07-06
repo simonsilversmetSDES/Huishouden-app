@@ -21,14 +21,20 @@ export interface CategoryStatus {
   actual_cents: number
 }
 
+export interface MonthTotals {
+  month: number
+  totals: TypeTotal[]
+}
+
 export interface DashboardData {
   context_id: number
   year: number
-  month: number
+  month: number | null // null = heel jaar
   to_be_allocated_cents: number
   type_totals: TypeTotal[]
   categories: CategoryStatus[]
   uncategorized_count: number
+  months: MonthTotals[] // altijd 12, voor de staafgrafiek
 }
 
 export interface BudgetCategoryRow {
