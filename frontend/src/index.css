@@ -1,25 +1,29 @@
 @import "tailwindcss";
 
-/* Donker thema — tokens uit het dataviz-referentiepalet (dark-mode-stappen,
-   gevalideerd tegen surface #1a1a19). Status-kleuren nooit hergebruiken als
-   reeks-kleur; tekst draagt nooit de datakleur. */
+/* Licht thema in de stijl van het oude Excel-dashboard: witte kaarten op een
+   warmgrijze pagina, kleur alleen waar ze betekenis draagt. Typekleuren zoals
+   in de Excel: Inkomen groen, Uitgaven oranje, Sparen blauw. Statuskleuren
+   nooit hergebruiken als reekskleur; tekst draagt nooit de datakleur. */
 @theme {
-  --color-page: #0d0d0d; /* paginavlak */
-  --color-surface: #1a1a19; /* kaarten */
-  --color-raised: #232322; /* hover / verhoogde vlakken */
-  --color-ink: #ffffff; /* primaire tekst */
-  --color-ink-2: #c3c2b7; /* secundaire tekst */
+  --color-page: #f9f9f7; /* paginavlak */
+  --color-surface: #ffffff; /* kaarten */
+  --color-raised: #f1f0ec; /* hover / verhoogde vlakken */
+  --color-ink: #0b0b0b; /* primaire tekst */
+  --color-ink-2: #52514e; /* secundaire tekst */
   --color-ink-3: #898781; /* gedempte tekst / labels */
-  --color-line: #2c2c2a; /* hairlines binnen een kaart */
-  --color-edge: rgb(255 255 255 / 0.1); /* rand rond kaarten */
-  --color-accent: #3987e5; /* reeks-blauw (dark-stap) */
-  --color-good: #0ca30c;
-  --color-warn: #fab219;
-  --color-crit: #d03b3b;
+  --color-line: #e1e0d9; /* hairlines binnen een kaart */
+  --color-edge: rgb(11 11 11 / 0.1); /* rand rond kaarten */
+  --color-accent: #2a78d6; /* interactie-blauw (focus, links) */
+  --color-income: #008300; /* type: Inkomen */
+  --color-expense: #eb6834; /* type: Uitgaven */
+  --color-saving: #2a78d6; /* type: Sparen */
+  --color-good: #008300;
+  --color-warn: #b45309;
+  --color-crit: #c62828;
 }
 
 html {
-  color-scheme: dark;
+  color-scheme: light;
 }
 
 body {

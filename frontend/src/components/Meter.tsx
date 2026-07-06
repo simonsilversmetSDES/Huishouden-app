@@ -6,10 +6,10 @@
 export type MeterTone = 'accent' | 'good' | 'warn' | 'crit'
 
 const TONE_HEX: Record<MeterTone, string> = {
-  accent: '#3987e5',
-  good: '#0ca30c',
-  warn: '#fab219',
-  crit: '#d03b3b',
+  accent: '#2a78d6',
+  good: '#008300',
+  warn: '#d97706',
+  crit: '#c62828',
 }
 
 interface MeterProps {
