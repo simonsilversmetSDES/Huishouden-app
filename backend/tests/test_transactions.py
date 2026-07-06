@@ -8,6 +8,7 @@ Het 23/12/2025-geval: de rij uit "Tracking S." zonder bedrag werd bij de import
 overgeslagen; handmatig toevoegen zonder bedrag moet 422 geven, mét bedrag 201.
 """
 
+from datetime import date
 from decimal import Decimal
 from typing import Any
 
@@ -17,7 +18,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import Category, Context, Transaction
-from app.models.enums import Categorization, TransactionSource
+from app.models.enums import Categorization, CategoryType, TransactionSource
+from app.services.budget import to_cents
 
 
 def _context_id(db: Session, name: str = "Gemeenschappelijk") -> int:
@@ -283,6 +285,130 @@ class TestTransactionList:
 
     def test_onbekende_context_404(self, logged_in: TestClient) -> None:
         assert self._get(logged_in, context_id=999, year=2026).status_code == 404
+
+
+def _put_payload(db: Session, tx_id: int, **overrides: Any) -> dict[str, Any]:
+    """Volledige PUT-payload op basis van de huidige transactie, met overrides."""
+    tx = db.get(Transaction, tx_id)
+    assert tx is not None
+    db.refresh(tx)
+    magnitude = to_cents(tx.amount if tx.type == CategoryType.INKOMEN else -tx.amount)
+    payload: dict[str, Any] = {
+        "context_id": tx.context_id,
+        "date": tx.date.isoformat(),
+        "effective_date": tx.effective_date.isoformat(),
+        "type": tx.type,
+        "amount_cents": magnitude,
+        "category_id": tx.category_id,
+        "description": tx.description,
+    }
+    payload.update(overrides)
+    return payload
+
+
+class TestTransactionUpdate:
+    def test_vereist_login(self, client: TestClient) -> None:
+        assert client.put("/api/transactions/1", json={}).status_code == 401
+
+    def test_put_wijzigt_velden_en_herrekent_teken(
+        self, logged_in: TestClient, seeded_db: Session
+    ) -> None:
+        """Type-flip Uitgaven → Inkomen: het teken in de database flipt mee."""
+        context_id = _context_id(seeded_db)
+        tx_id = _post_tx(logged_in, seeded_db).json()["id"]
+        bijdrage = _category(seeded_db, context_id, "Gemeenschappelijke bijdrage")
+        payload = _put_payload(
+            seeded_db, tx_id, type="Inkomen", category_id=bijdrage.id, description="correctie"
+        )
+        assert logged_in.put(f"/api/transactions/{tx_id}", json=payload).status_code == 204
+        assert _db_amount(seeded_db, tx_id) == Decimal("123.45")
+        tx = seeded_db.get(Transaction, tx_id)
+        assert tx is not None
+        assert tx.type == CategoryType.INKOMEN
+        assert tx.description == "correctie"
+
+    def test_put_import_transactie_mag(
+        self, logged_in: TestClient, seeded_db: Session
+    ) -> None:
+        """Spec §5.1: ook geïmporteerde transacties blijven aanpasbaar;
+        source en import_hash blijven onaangeroerd."""
+        context_id = _context_id(seeded_db)
+        tx = Transaction(
+            context_id=context_id,
+            date=date(2026, 3, 1),
+            amount="-50.00",
+            type=CategoryType.UITGAVEN,
+            source=TransactionSource.IMPORT_EXCEL,
+            import_hash="excel:test:1",
+        )
+        seeded_db.add(tx)
+        seeded_db.commit()
+
+        boodschappen = _category(seeded_db, context_id, "Boodschappen")
+        payload = _put_payload(seeded_db, tx.id, category_id=boodschappen.id)
+        assert logged_in.put(f"/api/transactions/{tx.id}", json=payload).status_code == 204
+        seeded_db.refresh(tx)
+        assert tx.category_id == boodschappen.id
+        assert tx.categorization == Categorization.MANUAL
+        assert tx.source == TransactionSource.IMPORT_EXCEL
+        assert tx.import_hash == "excel:test:1"
+
+    def test_context_niet_wijzigbaar_422(
+        self, logged_in: TestClient, seeded_db: Session
+    ) -> None:
+        tx_id = _post_tx(logged_in, seeded_db, category_id=None).json()["id"]
+        simon_id = _context_id(seeded_db, "Simon")
+        payload = _put_payload(seeded_db, tx_id, context_id=simon_id)
+        assert logged_in.put(f"/api/transactions/{tx_id}", json=payload).status_code == 422
+
+    def test_categorie_verkeerd_type_422(
+        self, logged_in: TestClient, seeded_db: Session
+    ) -> None:
+        context_id = _context_id(seeded_db)
+        tx_id = _post_tx(logged_in, seeded_db).json()["id"]
+        bijdrage = _category(seeded_db, context_id, "Gemeenschappelijke bijdrage")
+        payload = _put_payload(seeded_db, tx_id, category_id=bijdrage.id)  # type blijft Uitgaven
+        assert logged_in.put(f"/api/transactions/{tx_id}", json=payload).status_code == 422
+
+    def test_onbekende_transactie_404(self, logged_in: TestClient, seeded_db: Session) -> None:
+        payload = {
+            "context_id": _context_id(seeded_db),
+            "date": "2026-07-03",
+            "type": "Uitgaven",
+            "amount_cents": 100,
+        }
+        assert logged_in.put("/api/transactions/99999", json=payload).status_code == 404
+
+
+class TestTransactionDelete:
+    def test_vereist_login(self, client: TestClient) -> None:
+        assert client.delete("/api/transactions/1").status_code == 401
+
+    def test_delete_manual(self, logged_in: TestClient, seeded_db: Session) -> None:
+        tx_id = _post_tx(logged_in, seeded_db).json()["id"]
+        assert logged_in.delete(f"/api/transactions/{tx_id}").status_code == 204
+        assert seeded_db.get(Transaction, tx_id) is None
+
+    def test_delete_import_mag(self, logged_in: TestClient, seeded_db: Session) -> None:
+        """Bewust toegestaan: de unieke import_hash komt vrij, dus een
+        her-import zet de rij gewoon terug."""
+        tx = Transaction(
+            context_id=_context_id(seeded_db),
+            date=date(2026, 3, 1),
+            amount="-50.00",
+            type=CategoryType.UITGAVEN,
+            source=TransactionSource.IMPORT_EXCEL,
+            import_hash="excel:test:2",
+        )
+        seeded_db.add(tx)
+        seeded_db.commit()
+        tx_id = tx.id
+        assert logged_in.delete(f"/api/transactions/{tx_id}").status_code == 204
+        seeded_db.expire_all()  # de API verwijderde via een eigen sessie
+        assert seeded_db.get(Transaction, tx_id) is None
+
+    def test_onbekende_transactie_404(self, logged_in: TestClient) -> None:
+        assert logged_in.delete("/api/transactions/99999").status_code == 404
 
 
 class TestTransactionDashboardIntegratie:

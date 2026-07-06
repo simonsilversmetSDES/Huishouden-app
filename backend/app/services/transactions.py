@@ -25,6 +25,10 @@ class CategoryTypeMismatchError(ValueError):
     """Het type van de categorie komt niet overeen met dat van de transactie."""
 
 
+class ContextImmutableError(ValueError):
+    """De context van een bestaande transactie is niet wijzigbaar."""
+
+
 def _signed_amount(tx_type: CategoryType, magnitude_cents: int) -> Decimal:
     magnitude = from_cents(magnitude_cents)
     return magnitude if tx_type == CategoryType.INKOMEN else -magnitude
@@ -62,6 +66,16 @@ def create_transaction(db: Session, body: TransactionIn) -> Transaction:
     db.add(tx)
     db.commit()
     return tx
+
+
+def update_transaction(db: Session, tx: Transaction, body: TransactionIn) -> None:
+    """Volledige update; source, import_id en import_hash blijven onaangeroerd
+    (spec §5.1: ook geïmporteerde transacties blijven aanpasbaar)."""
+    if body.context_id != tx.context_id:
+        raise ContextImmutableError("De context van een transactie is niet wijzigbaar")
+    category = _resolve_category(db, tx.context_id, body.type, body.category_id)
+    _apply_body(tx, body, category)
+    db.commit()
 
 
 def list_transactions(

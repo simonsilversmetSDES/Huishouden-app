@@ -5,15 +5,17 @@ from sqlalchemy.orm import Session
 
 from app.auth.deps import CurrentUser
 from app.database import get_db
-from app.models import Category, Context
+from app.models import Category, Context, Transaction
 from app.models.enums import CategoryType
 from app.schemas.transactions import TransactionIn, TransactionOut
 from app.services.transactions import (
     CategoryTypeMismatchError,
+    ContextImmutableError,
     UnknownCategoryError,
     create_transaction,
     list_transactions,
     to_out,
+    update_transaction,
 )
 
 router = APIRouter(prefix="/api/transactions", tags=["transactions"])
@@ -58,3 +60,37 @@ def create_transaction_route(
         category = db.get(Category, tx.category_id)
         category_name = category.name if category else None
     return to_out(tx, category_name)
+
+
+def _get_transaction(db: Session, transaction_id: int) -> Transaction:
+    tx = db.get(Transaction, transaction_id)
+    if tx is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Onbekende transactie")
+    return tx
+
+
+@router.put("/{transaction_id}", status_code=status.HTTP_204_NO_CONTENT)
+def update_transaction_route(
+    transaction_id: int,
+    body: TransactionIn,
+    _user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+) -> None:
+    tx = _get_transaction(db, transaction_id)
+    try:
+        update_transaction(db, tx, body)
+    except UnknownCategoryError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except (CategoryTypeMismatchError, ContextImmutableError) as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+
+
+@router.delete("/{transaction_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_transaction_route(
+    transaction_id: int,
+    _user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+) -> None:
+    tx = _get_transaction(db, transaction_id)
+    db.delete(tx)
+    db.commit()
