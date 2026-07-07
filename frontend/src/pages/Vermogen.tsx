@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import {
+  Area,
+  AreaChart,
   Bar,
   BarChart,
   CartesianGrid,
@@ -9,10 +11,26 @@ import {
   YAxis,
 } from 'recharts'
 import { api, ApiError } from '../api/client'
-import type { AccountStatus, AccountSnapshotPayload } from '../api/types'
-import { seriesColor } from '../lib/chartColors'
+import type {
+  AccountSnapshotPayload,
+  AccountStatus,
+  AssetClass,
+  NetWorth,
+  NetWorthPayload,
+} from '../api/types'
+import DonutCard from '../components/DonutCard'
+import { ASSET_CLASS_COLORS, ASSET_CLASS_LABEL, seriesColor } from '../lib/chartColors'
 import { formatCents, formatCentsPlain, MAAND_KORT, parseEuroToCents } from '../lib/format'
 import { useAppState } from '../state/AppState'
+
+const ASSET_CLASSES: AssetClass[] = [
+  'contant',
+  'etf_fondsen',
+  'pensioensparen',
+  'groepsverzekering',
+  'woning',
+  'aandelen',
+]
 
 const inputClass =
   'w-full rounded-lg border border-edge bg-page px-3 py-2 text-sm focus:border-accent focus:outline-none'
@@ -41,6 +59,7 @@ export default function Vermogen() {
     <div className="space-y-6">
       <h1 className="text-lg font-semibold">Vermogen</h1>
       <AccountStatusSection contextId={contextId} />
+      <NetWorthSection contextId={contextId} />
     </div>
   )
 }
@@ -268,6 +287,238 @@ function AccountEvolution({ status }: { status: AccountStatus }) {
               />
             ))}
           </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  )
+}
+
+function NetWorthSection({ contextId }: { contextId: number }) {
+  const [data, setData] = useState<NetWorth | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  const load = useCallback(() => {
+    setError(null)
+    api<NetWorth>(`/api/net-worth?context_id=${contextId}`)
+      .then(setData)
+      .catch(() => setError('Vermogensbalans laden mislukt — probeer opnieuw'))
+  }, [contextId])
+
+  useEffect(load, [load])
+
+  const donutRows = (data?.latest_breakdown ?? []).map((a) => ({
+    name: ASSET_CLASS_LABEL[a.asset_class],
+    cents: a.value_cents,
+    color: ASSET_CLASS_COLORS[a.asset_class],
+  }))
+
+  return (
+    <section className="space-y-4">
+      <h2 className="text-base font-medium">Vermogensbalans</h2>
+
+      {error && (
+        <div className="rounded-2xl border border-edge bg-surface p-6 text-sm text-ink-2">
+          {error}{' '}
+          <button onClick={load} className="text-accent hover:underline">
+            Opnieuw
+          </button>
+        </div>
+      )}
+
+      {!error && data && (
+        <>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="rounded-2xl border border-edge bg-surface p-5">
+              <p className="text-sm text-ink-3">Totaal vermogen</p>
+              <p className="mt-1 text-3xl font-semibold tracking-tight">
+                {formatCents(data.latest_total_cents)}
+              </p>
+              <p className="mt-2 text-xs text-ink-3">
+                {data.latest_date
+                  ? `stand van ${monthLabel(data.latest_date)}`
+                  : 'nog geen gegevens'}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-edge bg-surface p-5">
+              <p className="text-sm text-ink-3">Verandering deze maand</p>
+              {data.latest_change_cents === null ? (
+                <p className="mt-1 text-3xl font-semibold tracking-tight text-ink-3">–</p>
+              ) : (
+                <p
+                  className={`mt-1 text-3xl font-semibold tracking-tight ${
+                    data.latest_change_cents < 0 ? 'text-crit' : 'text-good'
+                  }`}
+                >
+                  {data.latest_change_cents > 0 ? '+' : ''}
+                  {formatCents(data.latest_change_cents)}
+                </p>
+              )}
+              <p className="mt-2 text-xs text-ink-3">t.o.v. de vorige maand</p>
+            </div>
+          </div>
+
+          <NetWorthForm contextId={contextId} data={data} onSaved={load} />
+
+          {data.rows.length > 0 && (
+            <div className="grid gap-4 lg:grid-cols-2">
+              <DonutCard title="Verdeling activa" rows={donutRows} maxSegments={6} />
+              <NetWorthEvolution data={data} />
+            </div>
+          )}
+        </>
+      )}
+    </section>
+  )
+}
+
+function NetWorthForm({
+  contextId,
+  data,
+  onSaved,
+}: {
+  contextId: number
+  data: NetWorth
+  onSaved: () => void
+}) {
+  const [month, setMonth] = useState(currentMonth)
+  const [assetClass, setAssetClass] = useState<AssetClass>('contant')
+  const [amountText, setAmountText] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const snapshotDate = `${month}-01`
+
+  // Prefill met de bestaande waarde van (maand, activaklasse).
+  useEffect(() => {
+    const row = data.rows.find((r) => r.snapshot_date === snapshotDate)
+    const asset = row?.assets.find((a) => a.asset_class === assetClass)
+    setAmountText(asset ? formatCentsPlain(asset.value_cents) : '')
+  }, [snapshotDate, assetClass, data])
+
+  async function submit(e: FormEvent) {
+    e.preventDefault()
+    const cents = parseEuroToCents(amountText)
+    if (cents === null) {
+      setError('Ongeldig bedrag')
+      return
+    }
+    setError(null)
+    setSaving(true)
+    const payload: NetWorthPayload = {
+      context_id: contextId,
+      snapshot_date: snapshotDate,
+      asset_class: assetClass,
+      value_cents: cents,
+    }
+    try {
+      await api<NetWorth>('/api/net-worth', { method: 'PUT', body: JSON.stringify(payload) })
+      onSaved()
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Opslaan mislukt — probeer opnieuw')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <form onSubmit={submit} className="rounded-2xl border border-edge bg-surface p-5">
+      <h3 className="text-sm font-medium">Activaklasse invoeren of bijwerken</h3>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <label className="block">
+          <span className="mb-1 block text-xs uppercase tracking-wide text-ink-3">Maand</span>
+          <input
+            type="month"
+            value={month}
+            onChange={(e) => setMonth(e.target.value)}
+            className={inputClass}
+          />
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-xs uppercase tracking-wide text-ink-3">Activaklasse</span>
+          <select
+            value={assetClass}
+            onChange={(e) => setAssetClass(e.target.value as AssetClass)}
+            className={inputClass}
+          >
+            {ASSET_CLASSES.map((ac) => (
+              <option key={ac} value={ac}>
+                {ASSET_CLASS_LABEL[ac]}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-xs uppercase tracking-wide text-ink-3">Waarde</span>
+          <input
+            type="text"
+            inputMode="decimal"
+            placeholder="0,00"
+            value={amountText}
+            onChange={(e) => setAmountText(e.target.value)}
+            className={`${inputClass} text-right tabular-nums`}
+          />
+        </label>
+        <div className="flex items-end gap-3">
+          <button
+            type="submit"
+            disabled={saving}
+            className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent/85 disabled:opacity-50"
+          >
+            {saving ? 'Bezig…' : 'Opslaan'}
+          </button>
+        </div>
+      </div>
+      {error && <p className="mt-2 text-sm text-crit">{error}</p>}
+    </form>
+  )
+}
+
+function NetWorthEvolution({ data }: { data: NetWorth }) {
+  const series = data.rows.map((r) => ({ label: monthLabel(r.snapshot_date), total: r.total_cents }))
+  return (
+    <div className="flex flex-col rounded-2xl border border-edge bg-surface p-5">
+      <h3 className="text-sm font-medium text-ink-2">Nettowaarde-evolutie</h3>
+      <div className="mt-4 h-48">
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart data={series}>
+            <defs>
+              <linearGradient id="nwFill" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#2a78d6" stopOpacity={0.25} />
+                <stop offset="100%" stopColor="#2a78d6" stopOpacity={0.02} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid vertical={false} stroke="#e1e0d9" />
+            <XAxis
+              dataKey="label"
+              tickLine={false}
+              axisLine={{ stroke: '#e1e0d9' }}
+              tick={{ fill: '#898781', fontSize: 11 }}
+            />
+            <YAxis
+              tickLine={false}
+              axisLine={false}
+              width={52}
+              tick={{ fill: '#898781', fontSize: 11 }}
+              tickFormatter={(cents: number) => euroInt.format(cents / 100)}
+            />
+            <Tooltip
+              formatter={(value) => [formatCents(value as number), 'Nettowaarde']}
+              contentStyle={{
+                backgroundColor: '#ffffff',
+                border: '1px solid rgb(11 11 11 / 0.1)',
+                borderRadius: 12,
+                fontSize: 12,
+              }}
+            />
+            <Area
+              type="monotone"
+              dataKey="total"
+              stroke="#2a78d6"
+              strokeWidth={2}
+              fill="url(#nwFill)"
+              isAnimationActive={false}
+            />
+          </AreaChart>
         </ResponsiveContainer>
       </div>
     </div>

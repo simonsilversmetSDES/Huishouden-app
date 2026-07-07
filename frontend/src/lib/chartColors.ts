@@ -6,6 +6,15 @@
 
 import type { AssetClass } from '../api/types'
 
+// Sequentiële tinten per type (donkerste = grootste), zoals de Excel-donuts.
+// Gedeeld door DonutCard en de vermogens-donut.
+export const RAMPS: Record<'income' | 'expense' | 'saving', string[]> = {
+  income: ['#025402', '#068006', '#2fa32f', '#66c266', '#a3dba3'],
+  expense: ['#8f3113', '#c24a1f', '#eb6834', '#f29a72', '#f8ccb3'],
+  saving: ['#123f73', '#1d5aa6', '#2a78d6', '#6ba3e4', '#b3cff2'],
+}
+export const OTHER_HEX = '#d5d4cc'
+
 export const CATEGORICAL = [
   '#1d5aa6', // blauw
   '#eb6834', // oranje

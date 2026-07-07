@@ -3,33 +3,34 @@
 // "Overige", legend met bedragen en het totaal onderaan.
 
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts'
+import { OTHER_HEX, RAMPS } from '../lib/chartColors'
 import { formatCents } from '../lib/format'
 
-const RAMPS: Record<'income' | 'expense' | 'saving', string[]> = {
-  income: ['#025402', '#068006', '#2fa32f', '#66c266', '#a3dba3'],
-  expense: ['#8f3113', '#c24a1f', '#eb6834', '#f29a72', '#f8ccb3'],
-  saving: ['#123f73', '#1d5aa6', '#2a78d6', '#6ba3e4', '#b3cff2'],
-}
-const OTHER_HEX = '#d5d4cc'
 const TOP_N = 5
 
 export interface DonutRow {
   name: string
   cents: number
+  /** Vaste categorische kleur (kleur volgt de entiteit); anders de type-ramp. */
+  color?: string
 }
 
 interface DonutCardProps {
   title: string
-  kind: keyof typeof RAMPS
   rows: DonutRow[]
+  /** Sequentiële ramp wanneer de rijen zelf geen kleur dragen. */
+  kind?: keyof typeof RAMPS
+  /** Aantal losse segmenten voor "Overige" (default 5). */
+  maxSegments?: number
 }
 
-export default function DonutCard({ title, kind, rows }: DonutCardProps) {
+export default function DonutCard({ title, kind, rows, maxSegments = TOP_N }: DonutCardProps) {
   const sorted = rows.filter((r) => r.cents > 0).sort((a, b) => b.cents - a.cents)
-  const top = sorted.slice(0, TOP_N)
-  const restCents = sorted.slice(TOP_N).reduce((sum, r) => sum + r.cents, 0)
+  const top = sorted.slice(0, maxSegments)
+  const restCents = sorted.slice(maxSegments).reduce((sum, r) => sum + r.cents, 0)
+  const ramp = kind ? RAMPS[kind] : []
   const segments = [
-    ...top.map((r, i) => ({ ...r, color: RAMPS[kind][i] })),
+    ...top.map((r, i) => ({ ...r, color: r.color ?? ramp[i] ?? OTHER_HEX })),
     ...(restCents > 0 ? [{ name: 'Overige', cents: restCents, color: OTHER_HEX }] : []),
   ]
   const total = segments.reduce((sum, s) => sum + s.cents, 0)
