@@ -164,3 +164,33 @@ export interface ImportResult {
   created_count: number
   duplicate_count: number
 }
+
+// Categorisatieregels (spec §5.3).
+export type MatchField = 'counterparty_name' | 'counterparty_iban' | 'description'
+export type MatchType = 'contains' | 'equals' | 'regex'
+
+export interface Rule {
+  id: number
+  context_id: number
+  priority: number
+  match_field: MatchField
+  match_type: MatchType
+  match_value: string
+  category_id: number
+  category_name: string | null
+  created_from_correction: boolean
+}
+
+export interface RulePayload {
+  context_id: number
+  match_field: MatchField
+  match_type: MatchType
+  match_value: string
+  category_id: number
+  priority: number
+  created_from_correction?: boolean
+}
+
+export interface RuleApplyResult {
+  updated_count: number
+}

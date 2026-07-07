@@ -6,6 +6,7 @@ import Budget from './pages/Budget'
 import Dashboard from './pages/Dashboard'
 import Import from './pages/Import'
 import Login from './pages/Login'
+import Rules from './pages/Rules'
 import Transactions from './pages/Transactions'
 import { AppStateProvider } from './state/AppState'
 
@@ -44,6 +45,7 @@ export default function App() {
             <Route path="/" element={<Dashboard />} />
             <Route path="/transacties" element={<Transactions />} />
             <Route path="/import" element={<Import />} />
+            <Route path="/regels" element={<Rules />} />
             <Route path="/budget" element={<Budget />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
