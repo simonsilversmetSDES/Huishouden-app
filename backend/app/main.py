@@ -11,6 +11,7 @@ from app.routes import (
     imports,
     net_worth,
     rules,
+    securities,
     snapshots,
     transactions,
 )
@@ -34,3 +35,4 @@ app.include_router(rules.router)
 app.include_router(accounts.router)
 app.include_router(snapshots.router)
 app.include_router(net_worth.router)
+app.include_router(securities.router)
