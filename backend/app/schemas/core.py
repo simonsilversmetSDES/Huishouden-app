@@ -1,6 +1,6 @@
 from pydantic import BaseModel, ConfigDict
 
-from app.models.enums import AccountType, CategoryType
+from app.models.enums import AccountType, Bank, CategoryType
 
 
 class ContextOut(BaseModel):
@@ -16,6 +16,14 @@ class AccountOut(BaseModel):
     id: int
     name: str
     type: AccountType
+
+
+class AccountIn(BaseModel):
+    context_id: int
+    name: str
+    type: AccountType = AccountType.ANDERE
+    bank: Bank = Bank.ANDERE
+    iban: str | None = None
 
 
 class CategoryOut(BaseModel):

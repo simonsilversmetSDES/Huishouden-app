@@ -13,7 +13,12 @@ from sqlalchemy.orm import Session
 from app.auth.deps import CurrentUser
 from app.database import get_db
 from app.models import Context, NetWorthSnapshot
-from app.schemas.snapshots import NetWorthIn, NetWorthOut
+from app.schemas.snapshots import (
+    NetWorthContextTotal,
+    NetWorthIn,
+    NetWorthOut,
+    NetWorthSummaryOut,
+)
 from app.services.budget import from_cents
 from app.services.net_worth import build_net_worth
 
@@ -35,6 +40,22 @@ def net_worth(
 ) -> NetWorthOut:
     context = _get_context(db, context_id)
     return build_net_worth(db, context)
+
+
+@router.get("/summary", response_model=NetWorthSummaryOut)
+def net_worth_summary(
+    _user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+) -> NetWorthSummaryOut:
+    """Laatste nettowaarde per context + het gezinstotaal (voor de 't.o.v. totaal'-gauge)."""
+    contexts = db.scalars(select(Context).order_by(Context.id)).all()
+    totals = [
+        NetWorthContextTotal(
+            context_id=c.id, name=c.name, total_cents=build_net_worth(db, c).latest_total_cents
+        )
+        for c in contexts
+    ]
+    return NetWorthSummaryOut(contexts=totals, total_cents=sum(t.total_cents for t in totals))
 
 
 @router.put("", response_model=NetWorthOut)

@@ -74,3 +74,14 @@ class NetWorthIn(BaseModel):
     snapshot_date: date
     asset_class: AssetClass
     value_cents: int
+
+
+class NetWorthContextTotal(BaseModel):
+    context_id: int
+    name: str
+    total_cents: int
+
+
+class NetWorthSummaryOut(BaseModel):
+    contexts: list[NetWorthContextTotal]
+    total_cents: int  # gezinstotaal over alle contexten
