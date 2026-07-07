@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 
 from app.routes import (
+    accounts,
     auth,
     budgets,
     categories,
@@ -9,6 +10,7 @@ from app.routes import (
     health,
     imports,
     rules,
+    snapshots,
     transactions,
 )
 
@@ -28,3 +30,5 @@ app.include_router(dashboard.router)
 app.include_router(transactions.router)
 app.include_router(imports.router)
 app.include_router(rules.router)
+app.include_router(accounts.router)
+app.include_router(snapshots.router)
