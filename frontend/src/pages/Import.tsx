@@ -14,7 +14,7 @@ import type {
   Rule,
   RulePayload,
 } from '../api/types'
-import { formatCentsPlain, formatDate } from '../lib/format'
+import { formatCentsPlain, formatDate, parseEuroToCents } from '../lib/format'
 import { FIELD_LABEL, MATCH_FIELDS, MATCH_TYPES, ruleMatches, TYPE_LABEL } from '../lib/rules'
 
 const TYPES: CategoryType[] = ['Inkomen', 'Uitgaven', 'Sparen']
@@ -24,16 +24,25 @@ const selectClass =
 const inputClass =
   'w-full rounded-lg border border-edge bg-page px-3 py-2 text-sm focus:border-accent focus:outline-none'
 
-// Bewerkbare kopie van een previewrij: categorie/type kunnen aangepast worden
-// vóór het opslaan. `edited` = manueel gekozen; `ruleApplied` = door een regel
-// (server-preview of tijdens de import aangemaakt) gezet. Samen bepalen ze of we
-// auto- of manueel-categorisatie committen.
+// Bewerkbare kopie van een previewrij: categorie/type/bedrag/omschrijving kunnen
+// aangepast worden vóór het opslaan. `edited` = categorie manueel gekozen;
+// `ruleApplied` = door een regel (server-preview of tijdens de import aangemaakt)
+// gezet. `import_hash` blijft de originele dedupe-sleutel — bewerken verandert de
+// identiteit van de rij niet, enkel de opgeslagen waarde.
 interface EditRow {
   source: PreviewRow
   categoryId: number | null
   type: CategoryType
   edited: boolean
   ruleApplied: boolean
+  amountCents: number // signed, gecommit
+  amountText: string // wat in het invoerveld staat
+  amountInvalid: boolean
+  description: string
+}
+
+function signType(amountCents: number): CategoryType {
+  return amountCents > 0 ? 'Inkomen' : 'Uitgaven'
 }
 
 function toEditRow(row: PreviewRow): EditRow {
@@ -43,6 +52,10 @@ function toEditRow(row: PreviewRow): EditRow {
     type: row.type,
     edited: false,
     ruleApplied: row.matched_rule_id !== null,
+    amountCents: row.amount_cents,
+    amountText: formatCentsPlain(row.amount_cents),
+    amountInvalid: false,
+    description: row.description ?? '',
   }
 }
 
@@ -127,12 +140,32 @@ export default function Import() {
         return {
           ...row,
           categoryId: category ? category.id : null,
-          type: category ? category.type : row.source.type,
+          // met categorie volgt het type de categorie, anders het teken van het bedrag
+          type: category ? category.type : signType(row.amountCents),
           edited: true,
           ruleApplied: false,
         }
       }),
     )
+  }
+
+  function changeAmount(index: number, text: string) {
+    setRows((prev) =>
+      prev.map((row, i) => {
+        if (i !== index) return row
+        const cents = parseEuroToCents(text)
+        if (cents === null || cents === 0) {
+          return { ...row, amountText: text, amountInvalid: true }
+        }
+        // Zonder categorie volgt het type het teken (zoals de backend _sign_type).
+        const type = row.categoryId === null ? signType(cents) : row.type
+        return { ...row, amountText: text, amountCents: cents, amountInvalid: false, type }
+      }),
+    )
+  }
+
+  function changeDescription(index: number, text: string) {
+    setRows((prev) => prev.map((row, i) => (i === index ? { ...row, description: text } : row)))
   }
 
   // "＋ regel" op een rij: de editor voorinvullen en ernaartoe scrollen.
@@ -141,7 +174,7 @@ export default function Import() {
     setDraft({
       field: hasName ? 'counterparty_name' : 'description',
       type: 'contains',
-      value: (hasName ? row.source.counterparty_name : row.source.description) ?? '',
+      value: (hasName ? row.source.counterparty_name : row.description) ?? '',
       categoryId: row.categoryId ?? '',
     })
     setRuleMsg(null)
@@ -157,7 +190,12 @@ export default function Import() {
     setRows((prev) =>
       prev.map((row) => {
         if (row.edited || row.source.duplicate || row.source.is_internal_transfer) return row
-        if (!ruleMatches(row.source, rule)) return row
+        const candidate = {
+          counterparty_name: row.source.counterparty_name,
+          counterparty_iban: row.source.counterparty_iban,
+          description: row.description,
+        }
+        if (!ruleMatches(candidate, rule)) return row
         updated += 1
         return { ...row, categoryId: category.id, type: category.type, ruleApplied: true }
       }),
@@ -210,11 +248,11 @@ export default function Import() {
       .map((row) => ({
         date: row.source.date,
         effective_date: row.source.effective_date,
-        amount_cents: row.source.amount_cents,
+        amount_cents: row.amountCents,
         type: row.type,
         counterparty_name: row.source.counterparty_name,
         counterparty_iban: row.source.counterparty_iban,
-        description: row.source.description,
+        description: row.description.trim() || null,
         import_hash: row.source.import_hash,
         category_id: row.source.is_internal_transfer ? null : row.categoryId,
         categorization: categorizationFor(row),
@@ -244,6 +282,7 @@ export default function Import() {
   }
 
   const newRows = rows.filter((r) => !r.source.duplicate).length
+  const invalidRows = rows.filter((r) => !r.source.duplicate && r.amountInvalid).length
 
   return (
     <div className="space-y-4">
@@ -309,12 +348,14 @@ export default function Import() {
                   rows={rows}
                   categoriesByType={categoriesByType}
                   onChangeCategory={changeCategory}
+                  onChangeAmount={changeAmount}
+                  onChangeDescription={changeDescription}
                   onAddRule={prefillRule}
                 />
                 <div className="flex items-center gap-3 border-t border-line px-5 py-3">
                   <button
                     onClick={() => void commit()}
-                    disabled={committing || newRows === 0}
+                    disabled={committing || newRows === 0 || invalidRows > 0}
                     className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent/85 disabled:opacity-50"
                   >
                     {committing
@@ -323,10 +364,16 @@ export default function Import() {
                           newRows === 1 ? '' : 's'
                         } opslaan`}
                   </button>
-                  {newRows === 0 && (
-                    <span className="text-sm text-ink-3">
-                      Alle rijen zijn duplicaten — niets te importeren.
+                  {invalidRows > 0 ? (
+                    <span className="text-sm text-crit">
+                      {invalidRows} rij(en) met een ongeldig bedrag — corrigeer voor je opslaat.
                     </span>
+                  ) : (
+                    newRows === 0 && (
+                      <span className="text-sm text-ink-3">
+                        Alle rijen zijn duplicaten — niets te importeren.
+                      </span>
+                    )
                   )}
                 </div>
               </section>
@@ -491,15 +538,19 @@ function PreviewTable({
   rows,
   categoriesByType,
   onChangeCategory,
+  onChangeAmount,
+  onChangeDescription,
   onAddRule,
 }: {
   rows: EditRow[]
   categoriesByType: Record<CategoryType, Category[]>
   onChangeCategory: (index: number, categoryId: number | null) => void
+  onChangeAmount: (index: number, text: string) => void
+  onChangeDescription: (index: number, text: string) => void
   onAddRule: (row: EditRow) => void
 }) {
   return (
-    <table className="w-full min-w-[880px] text-sm">
+    <table className="w-full min-w-[1000px] text-sm">
       <thead>
         <tr className="border-b border-line text-xs text-ink-3">
           <th className="px-5 py-3 text-left font-medium">Datum</th>
@@ -525,11 +576,35 @@ function PreviewTable({
                   <span className="text-ink-3">–</span>
                 )}
               </td>
-              <td className="max-w-64 truncate px-3 py-2 text-ink-2">
-                {row.source.description ?? ''}
+              <td className="px-3 py-2 text-ink-2">
+                {dupe ? (
+                  <span className="block max-w-64 truncate">{row.source.description ?? ''}</span>
+                ) : (
+                  <input
+                    type="text"
+                    value={row.description}
+                    onChange={(e) => onChangeDescription(index, e.target.value)}
+                    aria-label="Omschrijving"
+                    className="w-full min-w-[12rem] rounded-lg border border-edge bg-page px-2 py-1.5 text-sm focus:border-accent focus:outline-none"
+                  />
+                )}
               </td>
-              <td className="whitespace-nowrap px-3 py-2 text-right">
-                {formatCentsPlain(row.source.amount_cents)}
+              <td className="px-3 py-2 text-right">
+                {dupe ? (
+                  formatCentsPlain(row.source.amount_cents)
+                ) : (
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={row.amountText}
+                    onChange={(e) => onChangeAmount(index, e.target.value)}
+                    aria-label="Bedrag"
+                    aria-invalid={row.amountInvalid}
+                    className={`w-28 rounded-lg border border-edge bg-page px-2 py-1.5 text-right text-sm tabular-nums focus:border-accent focus:outline-none ${
+                      row.amountInvalid ? 'border-crit' : ''
+                    }`}
+                  />
+                )}
               </td>
               <td className="px-3 py-2">
                 {dupe ? (
