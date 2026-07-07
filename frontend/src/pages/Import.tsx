@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
+import { useRef, useState, type ChangeEvent, type FormEvent } from 'react'
 import { api, apiUpload, ApiError } from '../api/client'
 import type {
   Category,
@@ -14,10 +14,9 @@ import type {
   Rule,
   RulePayload,
 } from '../api/types'
+import CategoryPicker from '../components/CategoryPicker'
 import { formatCentsPlain, formatDate, parseEuroToCents } from '../lib/format'
 import { FIELD_LABEL, MATCH_FIELDS, MATCH_TYPES, ruleMatches, TYPE_LABEL } from '../lib/rules'
-
-const TYPES: CategoryType[] = ['Inkomen', 'Uitgaven', 'Sparen']
 
 const selectClass =
   'w-full rounded-lg border border-edge bg-page px-2 py-1.5 text-sm focus:border-accent focus:outline-none'
@@ -92,12 +91,6 @@ export default function Import() {
   const fileRef = useRef<HTMLInputElement>(null)
   const editorRef = useRef<HTMLElement>(null)
   const ruleValueRef = useRef<HTMLInputElement>(null)
-
-  const categoriesByType = useMemo(() => {
-    const grouped: Record<CategoryType, Category[]> = { Inkomen: [], Uitgaven: [], Sparen: [] }
-    for (const c of categories) grouped[c.type].push(c)
-    return grouped
-  }, [categories])
 
   async function onFile(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -337,7 +330,7 @@ export default function Import() {
                 valueRef={ruleValueRef}
                 draft={draft}
                 setDraft={setDraft}
-                categoriesByType={categoriesByType}
+                categories={categories}
                 saving={ruleSaving}
                 message={ruleMsg}
                 onSubmit={saveRule}
@@ -346,7 +339,7 @@ export default function Import() {
               <section className="overflow-x-auto rounded-2xl border border-edge bg-surface">
                 <PreviewTable
                   rows={rows}
-                  categoriesByType={categoriesByType}
+                  categories={categories}
                   onChangeCategory={changeCategory}
                   onChangeAmount={changeAmount}
                   onChangeDescription={changeDescription}
@@ -434,7 +427,7 @@ function RuleEditor({
   valueRef,
   draft,
   setDraft,
-  categoriesByType,
+  categories,
   saving,
   message,
   onSubmit,
@@ -443,7 +436,7 @@ function RuleEditor({
   valueRef: React.RefObject<HTMLInputElement | null>
   draft: RuleDraft
   setDraft: React.Dispatch<React.SetStateAction<RuleDraft>>
-  categoriesByType: Record<CategoryType, Category[]>
+  categories: Category[]
   saving: boolean
   message: string | null
   onSubmit: (e: FormEvent) => void
@@ -497,27 +490,15 @@ function RuleEditor({
         </label>
         <label className="block">
           <span className="mb-1 block text-xs uppercase tracking-wide text-ink-3">Categorie</span>
-          <select
-            value={draft.categoryId}
-            onChange={(e) =>
-              setDraft((d) => ({
-                ...d,
-                categoryId: e.target.value === '' ? '' : Number(e.target.value),
-              }))
-            }
+          <CategoryPicker
+            categories={categories}
+            value={draft.categoryId === '' ? null : draft.categoryId}
+            onChange={(id) => setDraft((d) => ({ ...d, categoryId: id ?? '' }))}
+            groupByType
+            placeholder="— kies —"
+            ariaLabel="Categorie"
             className={inputClass}
-          >
-            <option value="">— kies —</option>
-            {TYPES.map((type) => (
-              <optgroup key={type} label={type}>
-                {categoriesByType[type].map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </optgroup>
-            ))}
-          </select>
+          />
         </label>
         <div className="flex items-center gap-3 sm:col-span-2 lg:col-span-6">
           <button
@@ -536,14 +517,14 @@ function RuleEditor({
 
 function PreviewTable({
   rows,
-  categoriesByType,
+  categories,
   onChangeCategory,
   onChangeAmount,
   onChangeDescription,
   onAddRule,
 }: {
   rows: EditRow[]
-  categoriesByType: Record<CategoryType, Category[]>
+  categories: Category[]
   onChangeCategory: (index: number, categoryId: number | null) => void
   onChangeAmount: (index: number, text: string) => void
   onChangeDescription: (index: number, text: string) => void
@@ -613,28 +594,18 @@ function PreviewTable({
                   <span className="text-xs text-ink-3">interne overschrijving</span>
                 ) : (
                   <div className="flex items-center gap-2">
-                    <select
-                      value={row.categoryId ?? ''}
-                      onChange={(e) =>
-                        onChangeCategory(
-                          index,
-                          e.target.value === '' ? null : Number(e.target.value),
-                        )
-                      }
-                      aria-label="Categorie"
+                    <CategoryPicker
+                      categories={categories}
+                      value={row.categoryId}
+                      onChange={(id) => onChangeCategory(index, id)}
+                      groupByType
+                      allowEmpty
+                      emptyLabel="— ongecategoriseerd —"
+                      placeholder="— ongecategoriseerd —"
+                      ariaLabel="Categorie"
                       className={selectClass}
-                    >
-                      <option value="">— ongecategoriseerd —</option>
-                      {TYPES.map((type) => (
-                        <optgroup key={type} label={type}>
-                          {categoriesByType[type].map((c) => (
-                            <option key={c.id} value={c.id}>
-                              {c.name}
-                            </option>
-                          ))}
-                        </optgroup>
-                      ))}
-                    </select>
+                      wrapperClassName="flex-1"
+                    />
                     <button
                       type="button"
                       onClick={() => onAddRule(row)}

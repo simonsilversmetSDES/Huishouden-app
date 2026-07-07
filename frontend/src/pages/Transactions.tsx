@@ -9,6 +9,7 @@ import type {
   Transaction,
   TransactionPayload,
 } from '../api/types'
+import CategoryPicker from '../components/CategoryPicker'
 import PeriodPicker, { currentPeriod, type Period } from '../components/PeriodPicker'
 import { formatCentsPlain, formatDate, formatMonthYear, parseEuroToCents } from '../lib/format'
 import { useAppState } from '../state/AppState'
@@ -383,18 +384,16 @@ function TransactionForm({
         </label>
         <label className="block">
           <span className="mb-1 block text-xs uppercase tracking-wide text-ink-3">Categorie</span>
-          <select
-            value={categoryId}
-            onChange={(e) => setCategoryId(e.target.value === '' ? '' : Number(e.target.value))}
+          <CategoryPicker
+            categories={typeCategories}
+            value={categoryId === '' ? null : categoryId}
+            onChange={(id) => setCategoryId(id ?? '')}
+            allowEmpty
+            emptyLabel="— geen —"
+            placeholder="Kies categorie…"
+            ariaLabel="Categorie"
             className={inputClass}
-          >
-            <option value="">— geen —</option>
-            {typeCategories.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
+          />
         </label>
         <label className="block">
           <span className="mb-1 block text-xs uppercase tracking-wide text-ink-3">Bedrag</span>

@@ -2,17 +2,15 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { api, ApiError } from '../api/client'
 import type {
   Category,
-  CategoryType,
   MatchField,
   MatchType,
   Rule,
   RuleApplyResult,
   RulePayload,
 } from '../api/types'
+import CategoryPicker from '../components/CategoryPicker'
 import { FIELD_LABEL, MATCH_FIELDS, MATCH_TYPES, TYPE_LABEL } from '../lib/rules'
 import { useAppState } from '../state/AppState'
-
-const TYPES: CategoryType[] = ['Inkomen', 'Uitgaven', 'Sparen']
 
 const inputClass =
   'w-full rounded-lg border border-edge bg-page px-3 py-2 text-sm focus:border-accent focus:outline-none'
@@ -261,24 +259,15 @@ function RuleForm({
         </label>
         <label className="block lg:col-span-1">
           <span className="mb-1 block text-xs uppercase tracking-wide text-ink-3">Categorie</span>
-          <select
-            value={categoryId}
-            onChange={(e) => setCategoryId(e.target.value === '' ? '' : Number(e.target.value))}
+          <CategoryPicker
+            categories={categories}
+            value={categoryId === '' ? null : categoryId}
+            onChange={(id) => setCategoryId(id ?? '')}
+            groupByType
+            placeholder="— kies —"
+            ariaLabel="Categorie"
             className={inputClass}
-          >
-            <option value="">— kies —</option>
-            {TYPES.map((type) => (
-              <optgroup key={type} label={type}>
-                {categories
-                  .filter((c) => c.type === type)
-                  .map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-              </optgroup>
-            ))}
-          </select>
+          />
         </label>
         <label className="block lg:col-span-1">
           <span className="mb-1 block text-xs uppercase tracking-wide text-ink-3">Prioriteit</span>
