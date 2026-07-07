@@ -1,9 +1,25 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
-import { api } from '../api/client'
-import type { Category, CategoryType, Transaction, TransactionPayload } from '../api/types'
+import { api, ApiError } from '../api/client'
+import type {
+  Category,
+  CategoryType,
+  Rule,
+  RuleApplyResult,
+  RulePayload,
+  Transaction,
+  TransactionPayload,
+} from '../api/types'
 import PeriodPicker, { currentPeriod, type Period } from '../components/PeriodPicker'
 import { formatCentsPlain, formatDate, formatMonthYear, parseEuroToCents } from '../lib/format'
 import { useAppState } from '../state/AppState'
+
+// Leereffect (spec §5.3): na een categoriecorrectie op een transactie met
+// tegenpartij stellen we voor er een regel van te maken.
+interface CorrectionSuggestion {
+  counterpartyName: string
+  categoryId: number
+  categoryName: string
+}
 
 const TYPES: CategoryType[] = ['Inkomen', 'Uitgaven', 'Sparen']
 
@@ -31,6 +47,7 @@ export default function Transactions() {
   const [transactions, setTransactions] = useState<Transaction[] | null>(null)
   const [editing, setEditing] = useState<Transaction | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [correction, setCorrection] = useState<CorrectionSuggestion | null>(null)
   const formRef = useRef<HTMLElement>(null)
 
   useEffect(() => {
@@ -64,6 +81,32 @@ export default function Transactions() {
     formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
+  async function createRuleFromCorrection() {
+    if (contextId === null || correction === null) return
+    const payload: RulePayload = {
+      context_id: contextId,
+      match_field: 'counterparty_name',
+      match_type: 'contains',
+      match_value: correction.counterpartyName,
+      category_id: correction.categoryId,
+      priority: 100,
+      created_from_correction: true,
+    }
+    try {
+      await api<Rule>('/api/rules', { method: 'POST', body: JSON.stringify(payload) })
+      const applied = await api<RuleApplyResult>(`/api/rules/apply?context_id=${contextId}`, {
+        method: 'POST',
+      })
+      setCorrection(null)
+      setError(null)
+      if (applied.updated_count > 0) load() // nieuw gecategoriseerde rijen tonen
+    } catch (err) {
+      setError(
+        err instanceof ApiError ? err.message : 'Regel aanmaken mislukt — probeer opnieuw',
+      )
+    }
+  }
+
   async function remove(tx: Transaction) {
     const omschrijving = tx.description ? ` "${tx.description}"` : ''
     if (!window.confirm(`Transactie${omschrijving} van ${formatDate(tx.date)} verwijderen?`)) {
@@ -95,11 +138,35 @@ export default function Transactions() {
         categories={categories}
         editing={editing}
         onCancelEdit={() => setEditing(null)}
-        onSaved={() => {
+        onSaved={(suggestion) => {
           setEditing(null)
+          setCorrection(suggestion ?? null)
           load()
         }}
       />
+
+      {correction && (
+        <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-accent/40 bg-surface p-4 text-sm">
+          <span className="text-ink-2">
+            Altijd <span className="font-medium text-ink">{correction.counterpartyName}</span> →{' '}
+            <span className="font-medium text-ink">{correction.categoryName}</span>?
+          </span>
+          <div className="ml-auto flex items-center gap-2">
+            <button
+              onClick={() => void createRuleFromCorrection()}
+              className="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent/85"
+            >
+              Regel maken
+            </button>
+            <button
+              onClick={() => setCorrection(null)}
+              className="rounded-lg border border-edge bg-surface px-3 py-1.5 text-sm text-ink-2 hover:bg-raised"
+            >
+              Nee, bedankt
+            </button>
+          </div>
+        </div>
+      )}
 
       {error && (
         <div className="rounded-2xl border border-edge bg-surface p-6 text-sm text-ink-2">
@@ -177,7 +244,7 @@ function TransactionForm({
   categories: Category[]
   editing: Transaction | null
   onCancelEdit: () => void
-  onSaved: () => void
+  onSaved: (correction?: CorrectionSuggestion) => void
 }) {
   const [date, setDate] = useState(todayIso)
   const [type, setType] = useState<CategoryType>('Uitgaven')
@@ -234,11 +301,29 @@ function TransactionForm({
       description: description.trim() || null,
     }
     try {
+      let suggestion: CorrectionSuggestion | undefined
       if (editing) {
         await api<void>(`/api/transactions/${editing.id}`, {
           method: 'PUT',
           body: JSON.stringify(payload),
         })
+        // Leereffect: categorie gewijzigd op een transactie met tegenpartij →
+        // stel voor er een regel van te maken.
+        const chosen = categoryId === '' ? null : categoryId
+        if (
+          editing.counterparty_name &&
+          chosen !== null &&
+          chosen !== editing.category_id
+        ) {
+          const category = categories.find((c) => c.id === chosen)
+          if (category) {
+            suggestion = {
+              counterpartyName: editing.counterparty_name,
+              categoryId: category.id,
+              categoryName: category.name,
+            }
+          }
+        }
       } else {
         await api<Transaction>('/api/transactions', {
           method: 'POST',
@@ -249,7 +334,7 @@ function TransactionForm({
       setAmountText('')
       setDescription('')
       setEffectiveDate('')
-      onSaved()
+      onSaved(suggestion)
     } catch {
       setSaveError('Opslaan mislukt — probeer opnieuw')
     } finally {

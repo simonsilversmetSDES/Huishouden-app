@@ -81,6 +81,8 @@ export interface Transaction {
   amount_cents: number // signed: + = inkomen, − = uitgave/sparen
   category_id: number | null
   category_name: string | null
+  counterparty_name: string | null
+  counterparty_iban: string | null
   description: string | null
   source: string
   is_internal_transfer: boolean
