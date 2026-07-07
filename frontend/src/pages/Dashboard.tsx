@@ -100,7 +100,7 @@ function VermogenGlance({ contextId }: { contextId: number }) {
     <div className="grid gap-4 sm:grid-cols-2">
       {hasNetWorth && netWorth && (
         <Link
-          to="/vermogen"
+          to="/financien/vermogen"
           className="rounded-2xl border border-edge bg-surface p-5 transition-colors hover:bg-raised/40"
         >
           <p className="text-sm text-ink-3">Totaal vermogen</p>
@@ -120,7 +120,7 @@ function VermogenGlance({ contextId }: { contextId: number }) {
       )}
       {missing && (
         <Link
-          to="/vermogen"
+          to="/financien/vermogen"
           className="flex items-center gap-2 rounded-2xl border border-warn/40 bg-surface px-4 py-3 text-sm text-ink-2 transition-colors hover:bg-raised/40"
         >
           {toneDot('warn')}
@@ -223,7 +223,7 @@ function DashboardBody({ data }: { data: DashboardData }) {
           <p className="text-ink-2">Nog geen budget of transacties in deze periode.</p>
           <p className="mt-2 text-sm text-ink-3">
             Zet je budget op de{' '}
-            <Link to="/budget" className="text-accent hover:underline">
+            <Link to="/financien/budget" className="text-accent hover:underline">
               Budget-pagina
             </Link>
             .
