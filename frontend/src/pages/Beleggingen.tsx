@@ -10,7 +10,7 @@ import type {
   SecurityTransactionPayload,
 } from '../api/types'
 import DonutCard from '../components/DonutCard'
-import { formatCents, formatCentsPlain } from '../lib/format'
+import { formatCents, formatCentsPlain, formatDate } from '../lib/format'
 import { useAppState } from '../state/AppState'
 
 const inputClass =
@@ -100,6 +100,7 @@ export default function Beleggingen() {
         <>
           <Overview portfolio={portfolio} />
           <PositionsTable portfolio={portfolio} />
+          <RealizedGains portfolio={portfolio} />
           <EntrySection
             contextId={contextId}
             securities={securities}
@@ -220,6 +221,71 @@ function PositionsTable({ portfolio }: { portfolio: Portfolio }) {
           ))}
         </tbody>
       </table>
+    </section>
+  )
+}
+
+function RealizedGains({ portfolio }: { portfolio: Portfolio }) {
+  if (portfolio.realized_gains.length === 0) return null
+  return (
+    <section className="space-y-3">
+      <div className="flex flex-wrap items-baseline gap-x-3">
+        <h2 className="text-base font-medium">Gerealiseerde meerwaarden</h2>
+        <span className="text-xs text-ink-3">
+          berekening o.b.v. gemiddelde aankoopprijs — geen fiscaal advies
+        </span>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        {portfolio.realized_by_year.map((y) => (
+          <div key={y.year} className="rounded-2xl border border-edge bg-surface px-4 py-3 text-sm">
+            <span className="text-ink-3">{y.year}: </span>
+            <span className={`font-medium ${y.gain_cents < 0 ? 'text-crit' : 'text-good'}`}>
+              {y.gain_cents > 0 ? '+' : ''}
+              {formatCents(y.gain_cents)}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      <div className="overflow-x-auto rounded-2xl border border-edge bg-surface">
+        <table className="w-full min-w-[720px] text-sm">
+          <thead>
+            <tr className="border-b border-line text-xs text-ink-3">
+              <th className="px-5 py-3 text-left font-medium">Datum</th>
+              <th className="px-3 py-3 text-left font-medium">Effect</th>
+              <th className="px-3 py-3 text-right font-medium">Aantal</th>
+              <th className="px-3 py-3 text-right font-medium">Opbrengst</th>
+              <th className="px-3 py-3 text-right font-medium">Kostbasis</th>
+              <th className="px-5 py-3 text-right font-medium">Meerwaarde</th>
+            </tr>
+          </thead>
+          <tbody className="tabular-nums">
+            {portfolio.realized_gains.map((g, i) => (
+              <tr
+                key={`${g.security_id}-${g.date}-${i}`}
+                className="border-b border-line last:border-b-0"
+              >
+                <td className="whitespace-nowrap px-5 py-2">{formatDate(g.date)}</td>
+                <td className="px-3 py-2">{g.name}</td>
+                <td className="px-3 py-2 text-right text-ink-2">{dec(g.shares)}</td>
+                <td className="px-3 py-2 text-right text-ink-2">
+                  {formatCentsPlain(g.proceeds_cents)}
+                </td>
+                <td className="px-3 py-2 text-right text-ink-2">
+                  {formatCentsPlain(g.cost_basis_cents)}
+                </td>
+                <td className="px-5 py-2 text-right">
+                  <span className={g.gain_cents < 0 ? 'text-crit' : 'text-good'}>
+                    {g.gain_cents > 0 ? '+' : ''}
+                    {formatCentsPlain(g.gain_cents)}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </section>
   )
 }
