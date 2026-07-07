@@ -6,6 +6,7 @@ import type {
   Security,
   SecurityPayload,
   SecurityPricePayload,
+  SecuritySearchHit,
   SecuritySide,
   SecurityTransactionPayload,
 } from '../api/types'
@@ -40,6 +41,7 @@ export default function Beleggingen() {
   const [securities, setSecurities] = useState<Security[]>([])
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const [editing, setEditing] = useState<Security | null>(null)
 
   const load = useCallback(() => {
     if (contextId === null) return
@@ -99,7 +101,11 @@ export default function Beleggingen() {
       {!error && portfolio && (
         <>
           <Overview portfolio={portfolio} />
-          <PositionsTable portfolio={portfolio} />
+          <PositionsTable
+            portfolio={portfolio}
+            securities={securities}
+            onEdit={setEditing}
+          />
           <RealizedGains portfolio={portfolio} />
           <EntrySection
             contextId={contextId}
@@ -107,6 +113,17 @@ export default function Beleggingen() {
             onChanged={load}
           />
         </>
+      )}
+
+      {editing && (
+        <EditSecurityModal
+          security={editing}
+          onClose={() => setEditing(null)}
+          onSaved={() => {
+            setEditing(null)
+            load()
+          }}
+        />
       )}
     </div>
   )
@@ -165,7 +182,15 @@ function Tile({
   )
 }
 
-function PositionsTable({ portfolio }: { portfolio: Portfolio }) {
+function PositionsTable({
+  portfolio,
+  securities,
+  onEdit,
+}: {
+  portfolio: Portfolio
+  securities: Security[]
+  onEdit: (security: Security) => void
+}) {
   if (portfolio.positions.length === 0) {
     return (
       <div className="rounded-2xl border border-dashed border-edge bg-surface p-8 text-center text-sm text-ink-2">
@@ -173,9 +198,10 @@ function PositionsTable({ portfolio }: { portfolio: Portfolio }) {
       </div>
     )
   }
+  const byId = new Map(securities.map((s) => [s.id, s]))
   return (
     <section className="overflow-x-auto rounded-2xl border border-edge bg-surface">
-      <table className="w-full min-w-[820px] text-sm">
+      <table className="w-full min-w-[880px] text-sm">
         <thead>
           <tr className="border-b border-line text-xs text-ink-3">
             <th className="px-5 py-3 text-left font-medium">Effect</th>
@@ -184,7 +210,8 @@ function PositionsTable({ portfolio }: { portfolio: Portfolio }) {
             <th className="px-3 py-3 text-right font-medium">Koers</th>
             <th className="px-3 py-3 text-right font-medium">Waarde</th>
             <th className="px-3 py-3 text-right font-medium">Winst/verlies</th>
-            <th className="px-5 py-3 text-right font-medium">% port.</th>
+            <th className="px-3 py-3 text-right font-medium">% port.</th>
+            <th className="px-5 py-3" />
           </tr>
         </thead>
         <tbody className="tabular-nums">
@@ -192,7 +219,11 @@ function PositionsTable({ portfolio }: { portfolio: Portfolio }) {
             <tr key={p.security_id} className="border-b border-line last:border-b-0 hover:bg-raised/50">
               <td className="px-5 py-2">
                 {p.name}
-                {p.ticker && <span className="ml-2 text-xs text-ink-3">{p.ticker}</span>}
+                {p.ticker ? (
+                  <span className="ml-2 text-xs text-ink-3">{p.ticker}</span>
+                ) : (
+                  <span className="ml-2 text-xs text-warn">geen ticker</span>
+                )}
               </td>
               <td className="px-3 py-2 text-right">{dec(p.shares)}</td>
               <td className="px-3 py-2 text-right text-ink-2">{dec(p.avg_buy_price)}</td>
@@ -216,12 +247,195 @@ function PositionsTable({ portfolio }: { portfolio: Portfolio }) {
                   </span>
                 )}
               </td>
-              <td className="px-5 py-2 text-right text-ink-3">{pctFmt.format(p.portfolio_pct)} %</td>
+              <td className="px-3 py-2 text-right text-ink-3">{pctFmt.format(p.portfolio_pct)} %</td>
+              <td className="whitespace-nowrap px-5 py-2 text-right">
+                {byId.has(p.security_id) && (
+                  <button
+                    onClick={() => onEdit(byId.get(p.security_id) as Security)}
+                    className="text-xs text-ink-3 hover:text-ink-2 hover:underline"
+                  >
+                    Bewerken
+                  </button>
+                )}
+              </td>
             </tr>
           ))}
         </tbody>
       </table>
     </section>
+  )
+}
+
+function EditSecurityModal({
+  security,
+  onClose,
+  onSaved,
+}: {
+  security: Security
+  onClose: () => void
+  onSaved: () => void
+}) {
+  const [name, setName] = useState(security.name)
+  const [ticker, setTicker] = useState(security.ticker ?? '')
+  const [isin, setIsin] = useState(security.isin ?? '')
+  const [query, setQuery] = useState('')
+  const [results, setResults] = useState<SecuritySearchHit[]>([])
+  const [searching, setSearching] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  // Debounced Yahoo-zoekopdracht.
+  useEffect(() => {
+    const q = query.trim()
+    if (q.length < 2) {
+      setResults([])
+      return
+    }
+    setSearching(true)
+    const timer = setTimeout(() => {
+      api<SecuritySearchHit[]>(`/api/securities/search?q=${encodeURIComponent(q)}`)
+        .then(setResults)
+        .catch(() => setResults([]))
+        .finally(() => setSearching(false))
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [query])
+
+  async function save() {
+    setError(null)
+    setBusy(true)
+    const payload: SecurityPayload = {
+      name: name.trim(),
+      ticker: ticker.trim() || null,
+      isin: isin.trim() || null,
+      owner_context_id: security.owner_context_id,
+    }
+    try {
+      await api(`/api/securities/${security.id}`, { method: 'PUT', body: JSON.stringify(payload) })
+      onSaved()
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Opslaan mislukt')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function remove() {
+    if (!window.confirm(`Effect "${security.name}" en al zijn transacties verwijderen?`)) return
+    setBusy(true)
+    try {
+      await api(`/api/securities/${security.id}`, { method: 'DELETE' })
+      onSaved()
+    } catch {
+      setError('Verwijderen mislukt')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/30 p-4 pt-16"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-lg rounded-2xl border border-edge bg-surface p-5 shadow-lg"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="text-sm font-medium">Effect bewerken</h3>
+        <div className="mt-3 space-y-3">
+          <label className="block">
+            <span className="mb-1 block text-xs uppercase tracking-wide text-ink-3">Naam</span>
+            <input className={inputClass} value={name} onChange={(e) => setName(e.target.value)} />
+          </label>
+
+          <label className="block">
+            <span className="mb-1 block text-xs uppercase tracking-wide text-ink-3">
+              Ticker (yfinance)
+            </span>
+            <input
+              className={inputClass}
+              value={ticker}
+              placeholder="bv. IWDA.AS"
+              onChange={(e) => setTicker(e.target.value)}
+            />
+          </label>
+          {security.suggested_ticker && security.suggested_ticker !== ticker && (
+            <button
+              type="button"
+              onClick={() => setTicker(security.suggested_ticker as string)}
+              className="rounded-lg bg-raised px-2.5 py-1 text-xs text-ink-2 hover:bg-raised/70"
+            >
+              Gebruik suggestie: {security.suggested_ticker}
+            </button>
+          )}
+
+          <label className="block">
+            <span className="mb-1 block text-xs uppercase tracking-wide text-ink-3">
+              Zoeken op Yahoo Finance
+            </span>
+            <input
+              className={inputClass}
+              value={query}
+              placeholder="bv. alphabet"
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </label>
+          {searching && <p className="text-xs text-ink-3">Zoeken…</p>}
+          {results.length > 0 && (
+            <ul className="max-h-48 overflow-y-auto rounded-lg border border-edge">
+              {results.map((hit) => (
+                <li key={hit.symbol}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTicker(hit.symbol)
+                      setResults([])
+                      setQuery('')
+                    }}
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-raised"
+                  >
+                    <span className="font-medium">{hit.symbol}</span>
+                    <span className="truncate text-ink-2">{hit.name}</span>
+                    <span className="ml-auto shrink-0 text-xs text-ink-3">{hit.exchange}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          <label className="block">
+            <span className="mb-1 block text-xs uppercase tracking-wide text-ink-3">ISIN</span>
+            <input className={inputClass} value={isin} onChange={(e) => setIsin(e.target.value)} />
+          </label>
+        </div>
+
+        {error && <p className="mt-2 text-sm text-crit">{error}</p>}
+
+        <div className="mt-4 flex items-center gap-3">
+          <button
+            onClick={() => void save()}
+            disabled={busy}
+            className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent/85 disabled:opacity-50"
+          >
+            Opslaan
+          </button>
+          <button
+            onClick={onClose}
+            className="rounded-lg border border-edge bg-surface px-3 py-2 text-sm text-ink-2 hover:bg-raised"
+          >
+            Annuleren
+          </button>
+          <button
+            onClick={() => void remove()}
+            disabled={busy}
+            className="ml-auto text-sm text-ink-3 hover:text-crit hover:underline"
+          >
+            Effect verwijderen
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }
 

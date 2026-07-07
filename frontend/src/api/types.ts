@@ -161,6 +161,14 @@ export interface Security {
   ticker: string | null
   isin: string | null
   owner_context_id: number
+  suggested_ticker?: string | null // afgeleid uit de naam wanneer ticker leeg is
+}
+
+export interface SecuritySearchHit {
+  symbol: string
+  name: string | null
+  exchange: string | null
+  quote_type: string | null
 }
 
 export interface SecurityPayload {
