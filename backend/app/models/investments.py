@@ -6,7 +6,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
 from app.models.enums import SecuritySide, str_enum
-from app.types import MoneyCents, PreciseDecimal
+from app.types import PreciseDecimal
 
 
 class Security(Base):
@@ -29,9 +29,11 @@ class SecurityTransaction(Base):
     side: Mapped[SecuritySide] = mapped_column(str_enum(SecuritySide, "security_side"))
     shares: Mapped[Decimal] = mapped_column(PreciseDecimal)  # fractioneel (bv. 0,013013 BTC)
     price_per_share: Mapped[Decimal] = mapped_column(PreciseDecimal)
-    fee: Mapped[Decimal] = mapped_column(MoneyCents, default=Decimal("0.00"))
-    tax: Mapped[Decimal] = mapped_column(MoneyCents, default=Decimal("0.00"))  # beurstaks (TOB)
-    total: Mapped[Decimal] = mapped_column(MoneyCents)  # shares*price + fee + tax
+    # Exacte Decimal (niet centen): de beurstaks (TOB) is sub-cent (bv. 0,259044),
+    # en de gemiddelde aankoopprijs (§10 = € 98,240055) vereist die precisie.
+    fee: Mapped[Decimal] = mapped_column(PreciseDecimal, default=Decimal("0"))
+    tax: Mapped[Decimal] = mapped_column(PreciseDecimal, default=Decimal("0"))  # beurstaks (TOB)
+    total: Mapped[Decimal] = mapped_column(PreciseDecimal)  # shares*price ± kosten/taks
 
 
 class SecurityPrice(Base):
