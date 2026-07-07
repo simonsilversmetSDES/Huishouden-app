@@ -171,6 +171,19 @@ export interface SecuritySearchHit {
   quote_type: string | null
 }
 
+export interface SecuritySplit {
+  id: number
+  security_id: number
+  date: string
+  ratio: string
+}
+
+export interface SecuritySplitPayload {
+  security_id: number
+  date: string
+  ratio: string
+}
+
 export interface SecurityPayload {
   name: string
   ticker: string | null

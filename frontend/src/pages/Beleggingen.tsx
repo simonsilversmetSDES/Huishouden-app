@@ -8,6 +8,8 @@ import type {
   SecurityPricePayload,
   SecuritySearchHit,
   SecuritySide,
+  SecuritySplit,
+  SecuritySplitPayload,
   SecurityTransaction,
   SecurityTransactionPayload,
 } from '../api/types'
@@ -565,6 +567,100 @@ interface TxDraft {
   tax: string
 }
 
+function SplitsBlock({
+  securityId,
+  onChanged,
+}: {
+  securityId: number
+  onChanged: () => void
+}) {
+  const [splits, setSplits] = useState<SecuritySplit[] | null>(null)
+  const [date, setDate] = useState(todayIso)
+  const [ratio, setRatio] = useState('')
+  const [error, setError] = useState<string | null>(null)
+
+  const reload = useCallback(() => {
+    api<SecuritySplit[]>(`/api/security-splits?security_id=${securityId}`)
+      .then(setSplits)
+      .catch(() => setSplits([]))
+  }, [securityId])
+
+  useEffect(reload, [reload])
+
+  async function add(e: FormEvent) {
+    e.preventDefault()
+    const r = normDec(ratio)
+    if (r === null) {
+      setError('Ongeldige ratio')
+      return
+    }
+    setError(null)
+    const payload: SecuritySplitPayload = { security_id: securityId, date, ratio: r }
+    try {
+      await api('/api/security-splits', { method: 'POST', body: JSON.stringify(payload) })
+      setRatio('')
+      reload()
+      onChanged()
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Split opslaan mislukt')
+    }
+  }
+
+  async function remove(s: SecuritySplit) {
+    if (!window.confirm(`Split van ${formatDate(s.date)} (${dec(s.ratio)}:1) verwijderen?`)) return
+    await api(`/api/security-splits/${s.id}`, { method: 'DELETE' })
+    reload()
+    onChanged()
+  }
+
+  return (
+    <div className="mt-3 rounded-lg border border-line p-3">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <span className="text-xs font-medium uppercase tracking-wide text-ink-3">
+          Aandelensplitsingen
+        </span>
+        {splits?.map((s) => (
+          <span key={s.id} className="flex items-center gap-1 text-xs text-ink-2">
+            {formatDate(s.date)}: {dec(s.ratio)}:1
+            <button
+              onClick={() => void remove(s)}
+              aria-label="Split verwijderen"
+              className="text-ink-3 hover:text-crit"
+            >
+              ×
+            </button>
+          </span>
+        ))}
+        {splits?.length === 0 && <span className="text-xs text-ink-3">geen</span>}
+      </div>
+      <form onSubmit={add} className="mt-2 flex flex-wrap items-center gap-2">
+        <input
+          type="date"
+          value={date}
+          onChange={(e) => setDate(e.target.value)}
+          className="rounded border border-edge bg-page px-2 py-1 text-sm"
+        />
+        <input
+          value={ratio}
+          placeholder="ratio (bv. 25)"
+          onChange={(e) => setRatio(e.target.value)}
+          className="w-28 rounded border border-edge bg-page px-2 py-1 text-sm text-right"
+        />
+        <button
+          type="submit"
+          className="rounded-lg bg-accent px-2.5 py-1 text-xs font-medium text-white hover:bg-accent/85"
+        >
+          Split toevoegen
+        </button>
+        {error && <span className="text-xs text-crit">{error}</span>}
+      </form>
+      <p className="mt-1 text-[11px] text-ink-3">
+        Bij een 25:1-split: transacties vóór de datum krijgen aantal × 25 en prijs ÷ 25.
+      </p>
+    </div>
+  )
+}
+
 function TransactionsModal({
   securityId,
   name,
@@ -662,6 +758,8 @@ function TransactionsModal({
           </button>
         </div>
         {error && <p className="mt-2 text-sm text-crit">{error}</p>}
+
+        <SplitsBlock securityId={securityId} onChanged={onChanged} />
 
         <div className="mt-3 overflow-x-auto">
           {rows === null ? (
