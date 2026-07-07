@@ -152,6 +152,98 @@ export interface NetWorthPayload {
   value_cents: number
 }
 
+// Beleggingen (spec §7). Hoeveelheden/koersen als exacte Decimal-strings; geld als centen.
+export type SecuritySide = 'buy' | 'sell'
+
+export interface Security {
+  id: number
+  name: string
+  ticker: string | null
+  isin: string | null
+  owner_context_id: number
+}
+
+export interface SecurityPayload {
+  name: string
+  ticker: string | null
+  isin: string | null
+  owner_context_id: number
+}
+
+export interface SecurityTransaction {
+  id: number
+  security_id: number
+  date: string
+  side: SecuritySide
+  shares: string
+  price_per_share: string
+  fee: string
+  tax: string
+  total: string
+}
+
+export interface SecurityTransactionPayload {
+  security_id: number
+  date: string
+  side: SecuritySide
+  shares: string
+  price_per_share: string
+  fee: string
+  tax: string
+}
+
+export interface Position {
+  security_id: number
+  name: string
+  ticker: string | null
+  shares: string
+  avg_buy_price: string | null
+  cost_cents: number
+  current_price: string | null
+  value_cents: number | null
+  gain_cents: number | null
+  gain_pct: number | null
+  portfolio_pct: number
+}
+
+export interface RealizedGain {
+  security_id: number
+  name: string
+  date: string
+  shares: string
+  proceeds_cents: number
+  cost_basis_cents: number
+  gain_cents: number
+  year: number
+}
+
+export interface RealizedYear {
+  year: number
+  gain_cents: number
+}
+
+export interface Portfolio {
+  context_id: number
+  positions: Position[]
+  total_value_cents: number
+  total_cost_cents: number
+  total_gain_cents: number
+  total_gain_pct: number | null
+  realized_gains: RealizedGain[]
+  realized_by_year: RealizedYear[]
+}
+
+export interface SecurityPricePayload {
+  security_id: number
+  date: string
+  price: string
+}
+
+export interface PriceFetchResult {
+  fetched: number
+  failed: string[]
+}
+
 export interface Transaction {
   id: number
   context_id: number

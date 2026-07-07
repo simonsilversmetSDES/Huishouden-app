@@ -2,6 +2,7 @@ import { type ReactNode } from 'react'
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { AuthProvider, useAuth } from './auth/AuthContext'
 import AppShell from './components/AppShell'
+import Beleggingen from './pages/Beleggingen'
 import Budget from './pages/Budget'
 import Dashboard from './pages/Dashboard'
 import Import from './pages/Import'
@@ -49,6 +50,7 @@ export default function App() {
             <Route path="/regels" element={<Rules />} />
             <Route path="/budget" element={<Budget />} />
             <Route path="/vermogen" element={<Vermogen />} />
+            <Route path="/beleggingen" element={<Beleggingen />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
