@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type ChangeEvent } from 'react'
+import { useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
 import { api, apiUpload, ApiError } from '../api/client'
 import type {
   Category,
@@ -8,22 +8,32 @@ import type {
   ImportCommit,
   ImportPreview,
   ImportResult,
+  MatchField,
+  MatchType,
   PreviewRow,
+  Rule,
+  RulePayload,
 } from '../api/types'
 import { formatCentsPlain, formatDate } from '../lib/format'
+import { FIELD_LABEL, MATCH_FIELDS, MATCH_TYPES, ruleMatches, TYPE_LABEL } from '../lib/rules'
 
 const TYPES: CategoryType[] = ['Inkomen', 'Uitgaven', 'Sparen']
 
 const selectClass =
   'w-full rounded-lg border border-edge bg-page px-2 py-1.5 text-sm focus:border-accent focus:outline-none'
+const inputClass =
+  'w-full rounded-lg border border-edge bg-page px-3 py-2 text-sm focus:border-accent focus:outline-none'
 
 // Bewerkbare kopie van een previewrij: categorie/type kunnen aangepast worden
-// vóór het opslaan. `edited` bepaalt of we auto- of manueel-categorisatie sturen.
+// vóór het opslaan. `edited` = manueel gekozen; `ruleApplied` = door een regel
+// (server-preview of tijdens de import aangemaakt) gezet. Samen bepalen ze of we
+// auto- of manueel-categorisatie committen.
 interface EditRow {
   source: PreviewRow
   categoryId: number | null
   type: CategoryType
   edited: boolean
+  ruleApplied: boolean
 }
 
 function toEditRow(row: PreviewRow): EditRow {
@@ -32,12 +42,22 @@ function toEditRow(row: PreviewRow): EditRow {
     categoryId: row.suggested_category_id,
     type: row.type,
     edited: false,
+    ruleApplied: row.matched_rule_id !== null,
   }
 }
 
 function categorizationFor(row: EditRow): Categorization {
   if (row.categoryId === null) return 'uncategorized'
-  return !row.edited && row.source.matched_rule_id !== null ? 'auto' : 'manual'
+  if (row.edited) return 'manual'
+  return row.ruleApplied ? 'auto' : 'manual'
+}
+
+// Prefill voor de regel-editor, afgeleid van een previewrij.
+interface RuleDraft {
+  field: MatchField
+  type: MatchType
+  value: string
+  categoryId: number | ''
 }
 
 export default function Import() {
@@ -48,7 +68,17 @@ export default function Import() {
   const [committing, setCommitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<ImportResult | null>(null)
+  const [draft, setDraft] = useState<RuleDraft>({
+    field: 'counterparty_name',
+    type: 'contains',
+    value: '',
+    categoryId: '',
+  })
+  const [ruleSaving, setRuleSaving] = useState(false)
+  const [ruleMsg, setRuleMsg] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+  const editorRef = useRef<HTMLElement>(null)
+  const ruleValueRef = useRef<HTMLInputElement>(null)
 
   const categoriesByType = useMemo(() => {
     const grouped: Record<CategoryType, Category[]> = { Inkomen: [], Uitgaven: [], Sparen: [] }
@@ -65,6 +95,7 @@ export default function Import() {
     setPreview(null)
     setRows([])
     setCategories([])
+    setRuleMsg(null)
     setUploading(true)
     try {
       const formData = new FormData()
@@ -98,9 +129,76 @@ export default function Import() {
           categoryId: category ? category.id : null,
           type: category ? category.type : row.source.type,
           edited: true,
+          ruleApplied: false,
         }
       }),
     )
+  }
+
+  // "＋ regel" op een rij: de editor voorinvullen en ernaartoe scrollen.
+  function prefillRule(row: EditRow) {
+    const hasName = !!row.source.counterparty_name
+    setDraft({
+      field: hasName ? 'counterparty_name' : 'description',
+      type: 'contains',
+      value: (hasName ? row.source.counterparty_name : row.source.description) ?? '',
+      categoryId: row.categoryId ?? '',
+    })
+    setRuleMsg(null)
+    editorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    // focus ná het scrollen zodat de gebruiker de waarde meteen kan bijwerken
+    setTimeout(() => ruleValueRef.current?.select(), 150)
+  }
+
+  // Client-side dezelfde regel toepassen op de preview (rijen die de gebruiker
+  // niet zelf aanpaste), zodat de match meteen zichtbaar is.
+  function applyRuleToPreview(rule: Rule, category: Category): number {
+    let updated = 0
+    setRows((prev) =>
+      prev.map((row) => {
+        if (row.edited || row.source.duplicate || row.source.is_internal_transfer) return row
+        if (!ruleMatches(row.source, rule)) return row
+        updated += 1
+        return { ...row, categoryId: category.id, type: category.type, ruleApplied: true }
+      }),
+    )
+    return updated
+  }
+
+  async function saveRule(e: FormEvent) {
+    e.preventDefault()
+    if (!preview?.account) return
+    if (draft.value.trim() === '' || draft.categoryId === '') {
+      setRuleMsg('Waarde en categorie zijn verplicht')
+      return
+    }
+    setRuleSaving(true)
+    setRuleMsg(null)
+    const payload: RulePayload = {
+      context_id: preview.account.context_id,
+      match_field: draft.field,
+      match_type: draft.type,
+      match_value: draft.value.trim(),
+      category_id: draft.categoryId,
+      priority: 100,
+      created_from_correction: false,
+    }
+    try {
+      const rule = await api<Rule>('/api/rules', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      })
+      const category = categories.find((c) => c.id === rule.category_id)
+      const updated = category ? applyRuleToPreview(rule, category) : 0
+      setDraft((d) => ({ ...d, value: '' }))
+      setRuleMsg(
+        `Regel opgeslagen — ${updated} rij${updated === 1 ? '' : 'en'} in dit voorbeeld bijgewerkt.`,
+      )
+    } catch (err) {
+      setRuleMsg(err instanceof ApiError ? err.message : 'Regel opslaan mislukt — probeer opnieuw')
+    } finally {
+      setRuleSaving(false)
+    }
   }
 
   async function commit() {
@@ -137,6 +235,7 @@ export default function Import() {
       setResult(res)
       setPreview(null)
       setRows([])
+      setRuleMsg(null)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Opslaan mislukt — probeer opnieuw')
     } finally {
@@ -193,31 +292,45 @@ export default function Import() {
           <PreviewSummary preview={preview} newRows={newRows} />
 
           {preview.account ? (
-            <section className="overflow-x-auto rounded-2xl border border-edge bg-surface">
-              <PreviewTable
-                rows={rows}
+            <>
+              <RuleEditor
+                ref={editorRef}
+                valueRef={ruleValueRef}
+                draft={draft}
+                setDraft={setDraft}
                 categoriesByType={categoriesByType}
-                onChangeCategory={changeCategory}
+                saving={ruleSaving}
+                message={ruleMsg}
+                onSubmit={saveRule}
               />
-              <div className="flex items-center gap-3 border-t border-line px-5 py-3">
-                <button
-                  onClick={() => void commit()}
-                  disabled={committing || newRows === 0}
-                  className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent/85 disabled:opacity-50"
-                >
-                  {committing
-                    ? 'Bezig met opslaan…'
-                    : `Bevestigen en ${newRows} transactie${
-                        newRows === 1 ? '' : 's'
-                      } opslaan`}
-                </button>
-                {newRows === 0 && (
-                  <span className="text-sm text-ink-3">
-                    Alle rijen zijn duplicaten — niets te importeren.
-                  </span>
-                )}
-              </div>
-            </section>
+
+              <section className="overflow-x-auto rounded-2xl border border-edge bg-surface">
+                <PreviewTable
+                  rows={rows}
+                  categoriesByType={categoriesByType}
+                  onChangeCategory={changeCategory}
+                  onAddRule={prefillRule}
+                />
+                <div className="flex items-center gap-3 border-t border-line px-5 py-3">
+                  <button
+                    onClick={() => void commit()}
+                    disabled={committing || newRows === 0}
+                    className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent/85 disabled:opacity-50"
+                  >
+                    {committing
+                      ? 'Bezig met opslaan…'
+                      : `Bevestigen en ${newRows} transactie${
+                          newRows === 1 ? '' : 's'
+                        } opslaan`}
+                  </button>
+                  {newRows === 0 && (
+                    <span className="text-sm text-ink-3">
+                      Alle rijen zijn duplicaten — niets te importeren.
+                    </span>
+                  )}
+                </div>
+              </section>
+            </>
           ) : (
             <div className="rounded-2xl border border-warn/40 bg-surface p-5 text-sm text-ink-2">
               De rekening uit dit bestand is niet gekend
@@ -269,17 +382,124 @@ function PreviewSummary({ preview, newRows }: { preview: ImportPreview; newRows:
   )
 }
 
+function RuleEditor({
+  ref,
+  valueRef,
+  draft,
+  setDraft,
+  categoriesByType,
+  saving,
+  message,
+  onSubmit,
+}: {
+  ref: React.RefObject<HTMLElement | null>
+  valueRef: React.RefObject<HTMLInputElement | null>
+  draft: RuleDraft
+  setDraft: React.Dispatch<React.SetStateAction<RuleDraft>>
+  categoriesByType: Record<CategoryType, Category[]>
+  saving: boolean
+  message: string | null
+  onSubmit: (e: FormEvent) => void
+}) {
+  return (
+    <section ref={ref} className="rounded-2xl border border-edge bg-surface p-5">
+      <h2 className="text-sm font-medium">Regel toevoegen tijdens de import</h2>
+      <p className="mt-1 text-xs text-ink-3">
+        Maak een regel op basis van een rij hieronder (knop “＋ regel”) of vul ze zelf in.
+        De regel wordt bewaard en meteen op dit voorbeeld toegepast.
+      </p>
+      <form onSubmit={onSubmit} className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
+        <label className="block">
+          <span className="mb-1 block text-xs uppercase tracking-wide text-ink-3">Veld</span>
+          <select
+            value={draft.field}
+            onChange={(e) => setDraft((d) => ({ ...d, field: e.target.value as MatchField }))}
+            className={inputClass}
+          >
+            {MATCH_FIELDS.map((f) => (
+              <option key={f} value={f}>
+                {FIELD_LABEL[f]}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-xs uppercase tracking-wide text-ink-3">Match</span>
+          <select
+            value={draft.type}
+            onChange={(e) => setDraft((d) => ({ ...d, type: e.target.value as MatchType }))}
+            className={inputClass}
+          >
+            {MATCH_TYPES.map((t) => (
+              <option key={t} value={t}>
+                {TYPE_LABEL[t]}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="block lg:col-span-2">
+          <span className="mb-1 block text-xs uppercase tracking-wide text-ink-3">Waarde</span>
+          <input
+            ref={valueRef}
+            type="text"
+            value={draft.value}
+            onChange={(e) => setDraft((d) => ({ ...d, value: e.target.value }))}
+            placeholder={draft.type === 'regex' ? 'bv. mobile\\s+vikings' : 'bv. COLRUYT'}
+            className={inputClass}
+          />
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-xs uppercase tracking-wide text-ink-3">Categorie</span>
+          <select
+            value={draft.categoryId}
+            onChange={(e) =>
+              setDraft((d) => ({
+                ...d,
+                categoryId: e.target.value === '' ? '' : Number(e.target.value),
+              }))
+            }
+            className={inputClass}
+          >
+            <option value="">— kies —</option>
+            {TYPES.map((type) => (
+              <optgroup key={type} label={type}>
+                {categoriesByType[type].map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+        </label>
+        <div className="flex items-center gap-3 sm:col-span-2 lg:col-span-6">
+          <button
+            type="submit"
+            disabled={saving}
+            className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent/85 disabled:opacity-50"
+          >
+            {saving ? 'Bezig…' : 'Regel opslaan'}
+          </button>
+          {message && <p className="text-sm text-ink-2">{message}</p>}
+        </div>
+      </form>
+    </section>
+  )
+}
+
 function PreviewTable({
   rows,
   categoriesByType,
   onChangeCategory,
+  onAddRule,
 }: {
   rows: EditRow[]
   categoriesByType: Record<CategoryType, Category[]>
   onChangeCategory: (index: number, categoryId: number | null) => void
+  onAddRule: (row: EditRow) => void
 }) {
   return (
-    <table className="w-full min-w-[820px] text-sm">
+    <table className="w-full min-w-[880px] text-sm">
       <thead>
         <tr className="border-b border-line text-xs text-ink-3">
           <th className="px-5 py-3 text-left font-medium">Datum</th>
@@ -317,28 +537,38 @@ function PreviewTable({
                 ) : row.source.is_internal_transfer ? (
                   <span className="text-xs text-ink-3">interne overschrijving</span>
                 ) : (
-                  <select
-                    value={row.categoryId ?? ''}
-                    onChange={(e) =>
-                      onChangeCategory(
-                        index,
-                        e.target.value === '' ? null : Number(e.target.value),
-                      )
-                    }
-                    aria-label="Categorie"
-                    className={selectClass}
-                  >
-                    <option value="">— ongecategoriseerd —</option>
-                    {TYPES.map((type) => (
-                      <optgroup key={type} label={type}>
-                        {categoriesByType[type].map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.name}
-                          </option>
-                        ))}
-                      </optgroup>
-                    ))}
-                  </select>
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={row.categoryId ?? ''}
+                      onChange={(e) =>
+                        onChangeCategory(
+                          index,
+                          e.target.value === '' ? null : Number(e.target.value),
+                        )
+                      }
+                      aria-label="Categorie"
+                      className={selectClass}
+                    >
+                      <option value="">— ongecategoriseerd —</option>
+                      {TYPES.map((type) => (
+                        <optgroup key={type} label={type}>
+                          {categoriesByType[type].map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.name}
+                            </option>
+                          ))}
+                        </optgroup>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => onAddRule(row)}
+                      title="Maak een regel op basis van deze rij"
+                      className="whitespace-nowrap rounded-lg border border-edge bg-surface px-2 py-1.5 text-xs text-ink-2 transition-colors hover:bg-raised"
+                    >
+                      ＋ regel
+                    </button>
+                  </div>
                 )}
               </td>
             </tr>

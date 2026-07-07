@@ -9,22 +9,10 @@ import type {
   RuleApplyResult,
   RulePayload,
 } from '../api/types'
+import { FIELD_LABEL, MATCH_FIELDS, MATCH_TYPES, TYPE_LABEL } from '../lib/rules'
 import { useAppState } from '../state/AppState'
 
 const TYPES: CategoryType[] = ['Inkomen', 'Uitgaven', 'Sparen']
-
-const FIELD_LABEL: Record<MatchField, string> = {
-  counterparty_name: 'Tegenpartij (naam)',
-  counterparty_iban: 'Tegenpartij (IBAN)',
-  description: 'Omschrijving',
-}
-const TYPE_LABEL: Record<MatchType, string> = {
-  contains: 'bevat',
-  equals: 'is gelijk aan',
-  regex: 'regex',
-}
-const MATCH_FIELDS = Object.keys(FIELD_LABEL) as MatchField[]
-const MATCH_TYPES = Object.keys(TYPE_LABEL) as MatchType[]
 
 const inputClass =
   'w-full rounded-lg border border-edge bg-page px-3 py-2 text-sm focus:border-accent focus:outline-none'
