@@ -182,6 +182,7 @@ export interface SecuritySplitPayload {
   security_id: number
   date: string
   ratio: string
+  apply_to_other_contexts?: boolean
 }
 
 export interface SecurityPayload {

@@ -577,6 +577,7 @@ function SplitsBlock({
   const [splits, setSplits] = useState<SecuritySplit[] | null>(null)
   const [date, setDate] = useState(todayIso)
   const [ratio, setRatio] = useState('')
+  const [alsoOthers, setAlsoOthers] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   const reload = useCallback(() => {
@@ -595,7 +596,12 @@ function SplitsBlock({
       return
     }
     setError(null)
-    const payload: SecuritySplitPayload = { security_id: securityId, date, ratio: r }
+    const payload: SecuritySplitPayload = {
+      security_id: securityId,
+      date,
+      ratio: r,
+      apply_to_other_contexts: alsoOthers,
+    }
     try {
       await api('/api/security-splits', { method: 'POST', body: JSON.stringify(payload) })
       setRatio('')
@@ -652,6 +658,15 @@ function SplitsBlock({
         >
           Split toevoegen
         </button>
+        <label className="flex items-center gap-1.5 text-xs text-ink-2">
+          <input
+            type="checkbox"
+            checked={alsoOthers}
+            onChange={(e) => setAlsoOthers(e.target.checked)}
+            className="size-3.5 accent-accent"
+          />
+          ook op andere portefeuilles
+        </label>
         {error && <span className="text-xs text-crit">{error}</span>}
       </form>
       <p className="mt-1 text-[11px] text-ink-3">

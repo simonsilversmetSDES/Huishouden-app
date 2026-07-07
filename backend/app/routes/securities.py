@@ -262,8 +262,28 @@ def create_split(
         raise invalid from exc
     if ratio <= 0:
         raise invalid
-    split = SecuritySplit(security_id=body.security_id, date=body.date, ratio=ratio)
+    target = _get_security(db, body.security_id)
+    split = SecuritySplit(security_id=target.id, date=body.date, ratio=ratio)
     db.add(split)
+
+    if body.apply_to_other_contexts:
+        # Zelfde effect bij de andere personen: match op ticker (indien gezet) of naam.
+        for sibling in db.scalars(
+            select(Security).where(
+                Security.owner_context_id != target.owner_context_id,
+                (Security.ticker == target.ticker)
+                if target.ticker
+                else (Security.name == target.name),
+            )
+        ):
+            already = db.scalars(
+                select(SecuritySplit).where(
+                    SecuritySplit.security_id == sibling.id, SecuritySplit.date == body.date
+                )
+            ).first()
+            if already is None:
+                db.add(SecuritySplit(security_id=sibling.id, date=body.date, ratio=ratio))
+
     db.commit()
     return _split_out(split)
 

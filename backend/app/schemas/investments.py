@@ -40,6 +40,7 @@ class SecuritySplitIn(BaseModel):
     security_id: int
     date: date
     ratio: str  # bv. "25" voor een 25:1-split
+    apply_to_other_contexts: bool = False  # zelfde split op hetzelfde effect bij anderen
 
 
 class SecuritySplitOut(BaseModel):
