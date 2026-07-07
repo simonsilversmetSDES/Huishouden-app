@@ -2,6 +2,7 @@
 // segmenten in tinten van de typekleur (donkerste = grootste), top 5 +
 // "Overige", legend met bedragen en het totaal onderaan.
 
+import { useState } from 'react'
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts'
 import { OTHER_HEX, RAMPS } from '../lib/chartColors'
 import { formatCents } from '../lib/format'
@@ -25,6 +26,7 @@ interface DonutCardProps {
 }
 
 export default function DonutCard({ title, kind, rows, maxSegments = TOP_N }: DonutCardProps) {
+  const [hidden, setHidden] = useState<Set<string>>(new Set())
   const sorted = rows.filter((r) => r.cents > 0).sort((a, b) => b.cents - a.cents)
   const top = sorted.slice(0, maxSegments)
   const restCents = sorted.slice(maxSegments).reduce((sum, r) => sum + r.cents, 0)
@@ -33,7 +35,18 @@ export default function DonutCard({ title, kind, rows, maxSegments = TOP_N }: Do
     ...top.map((r, i) => ({ ...r, color: r.color ?? ramp[i] ?? OTHER_HEX })),
     ...(restCents > 0 ? [{ name: 'Overige', cents: restCents, color: OTHER_HEX }] : []),
   ]
-  const total = segments.reduce((sum, s) => sum + s.cents, 0)
+  // Klikken in de legende verbergt een segment; ring en totaal rekenen op de rest.
+  const shown = segments.filter((s) => !hidden.has(s.name))
+  const total = shown.reduce((sum, s) => sum + s.cents, 0)
+
+  function toggle(name: string) {
+    setHidden((prev) => {
+      const next = new Set(prev)
+      if (next.has(name)) next.delete(name)
+      else next.add(name)
+      return next
+    })
+  }
 
   return (
     <div className="flex flex-col rounded-2xl border border-edge bg-surface p-5">
@@ -48,7 +61,7 @@ export default function DonutCard({ title, kind, rows, maxSegments = TOP_N }: Do
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
-                  data={segments}
+                  data={shown}
                   dataKey="cents"
                   nameKey="name"
                   innerRadius="62%"
@@ -57,7 +70,7 @@ export default function DonutCard({ title, kind, rows, maxSegments = TOP_N }: Do
                   stroke="none"
                   isAnimationActive={false}
                 >
-                  {segments.map((s) => (
+                  {shown.map((s) => (
                     <Cell key={s.name} fill={s.color} />
                   ))}
                 </Pie>
@@ -75,17 +88,31 @@ export default function DonutCard({ title, kind, rows, maxSegments = TOP_N }: Do
           </div>
           <div className="min-w-0 flex-1">
             <ul className="space-y-1.5 text-sm">
-              {segments.map((s) => (
-                <li key={s.name} className="flex items-center gap-2">
-                  <span
-                    aria-hidden
-                    className="size-2.5 shrink-0 rounded-sm"
-                    style={{ backgroundColor: s.color }}
-                  />
-                  <span className="truncate text-ink-2">{s.name}</span>
-                  <span className="ml-auto shrink-0 tabular-nums">{formatCents(s.cents)}</span>
-                </li>
-              ))}
+              {segments.map((s) => {
+                const off = hidden.has(s.name)
+                return (
+                  <li key={s.name}>
+                    <button
+                      type="button"
+                      onClick={() => toggle(s.name)}
+                      aria-pressed={!off}
+                      className={`flex w-full items-center gap-2 text-left transition-opacity ${
+                        off ? 'opacity-40' : ''
+                      }`}
+                    >
+                      <span
+                        aria-hidden
+                        className="size-2.5 shrink-0 rounded-sm"
+                        style={{ backgroundColor: s.color }}
+                      />
+                      <span className={`truncate text-ink-2 ${off ? 'line-through' : ''}`}>
+                        {s.name}
+                      </span>
+                      <span className="ml-auto shrink-0 tabular-nums">{formatCents(s.cents)}</span>
+                    </button>
+                  </li>
+                )
+              })}
             </ul>
             <p className="mt-3 flex items-center border-t border-line pt-2 text-sm font-medium">
               Totaal
