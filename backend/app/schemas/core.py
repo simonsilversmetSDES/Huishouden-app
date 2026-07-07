@@ -16,3 +16,9 @@ class CategoryOut(BaseModel):
     id: int
     name: str
     type: CategoryType
+
+
+class CategoryIn(BaseModel):
+    context_id: int
+    name: str
+    type: CategoryType
