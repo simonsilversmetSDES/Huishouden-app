@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { api, ApiError } from '../api/client'
 import type {
   Portfolio,
@@ -29,6 +29,13 @@ function dec(value: string | null): string {
   return value === null ? '–' : value.replace('.', ',')
 }
 
+const dec2Fmt = new Intl.NumberFormat('nl-BE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+
+/** Decimal-string op 2 decimalen (weergave voor gem. aankoop en koers). */
+function dec2(value: string | null): string {
+  return value === null ? '–' : dec2Fmt.format(Number(value))
+}
+
 /** nl-BE-invoer ("1.234,5" / "1234,5" / "1234.5") → Decimal-string met punt, of null. */
 function normDec(input: string): string | null {
   const text = input.trim().replace(/\s/g, '').replace(/\./g, '').replace(',', '.')
@@ -44,6 +51,9 @@ export default function Beleggingen() {
   const [notice, setNotice] = useState<string | null>(null)
   const [editing, setEditing] = useState<Security | null>(null)
   const [viewingTx, setViewingTx] = useState<{ id: number; name: string } | null>(null)
+  const [selected, setSelected] = useState<Set<number>>(new Set())
+  const knownRef = useRef<Set<number>>(new Set())
+  const autoFetchedRef = useRef(false)
 
   const load = useCallback(() => {
     if (contextId === null) return
@@ -57,6 +67,30 @@ export default function Beleggingen() {
   }, [contextId])
 
   useEffect(load, [load])
+
+  // Nieuwe effecten staan standaard aangevinkt; bestaande selectie blijft behouden.
+  useEffect(() => {
+    if (!portfolio) return
+    const fresh = portfolio.positions
+      .map((p) => p.security_id)
+      .filter((id) => !knownRef.current.has(id))
+    if (fresh.length === 0) return
+    fresh.forEach((id) => knownRef.current.add(id))
+    setSelected((prev) => new Set([...prev, ...fresh]))
+  }, [portfolio])
+
+  // Koersen verversen bij het openen van de tab (één keer per context).
+  useEffect(() => {
+    if (contextId === null || autoFetchedRef.current) return
+    autoFetchedRef.current = true
+    api<PriceFetchResult>(`/api/prices/fetch?context_id=${contextId}`, { method: 'POST' })
+      .then((res) => {
+        if (res.fetched > 0) load()
+      })
+      .catch(() => {
+        /* stil: koersen uitgeschakeld of netwerkfout */
+      })
+  }, [contextId, load])
 
   if (contextId === null) return null
 
@@ -77,6 +111,25 @@ export default function Beleggingen() {
       )
     }
   }
+
+  function toggle(id: number) {
+    setSelected((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  // Overzicht/totalen/donut enkel op de aangevinkte effecten.
+  const visible = portfolio ? portfolio.positions.filter((p) => selected.has(p.security_id)) : []
+  const totalValue = visible.reduce((sum, p) => sum + (p.value_cents ?? 0), 0)
+  const totalCost = visible.reduce((sum, p) => sum + p.cost_cents, 0)
+  const totalGain = totalValue - totalCost
+  const totalGainPct = totalCost > 0 ? (totalGain / totalCost) * 100 : null
+  const donutRows = visible
+    .filter((p) => p.value_cents !== null && p.value_cents > 0)
+    .map((p) => ({ name: p.name, cents: p.value_cents as number }))
 
   return (
     <div className="space-y-6">
@@ -102,10 +155,19 @@ export default function Beleggingen() {
 
       {!error && portfolio && (
         <>
-          <Overview portfolio={portfolio} />
+          <Overview
+            totalValueCents={totalValue}
+            totalCostCents={totalCost}
+            gainCents={totalGain}
+            gainPct={totalGainPct}
+            donutRows={donutRows}
+          />
           <PositionsTable
             portfolio={portfolio}
             securities={securities}
+            selected={selected}
+            selectedTotalValue={totalValue}
+            onToggle={toggle}
             onEdit={setEditing}
             onViewTransactions={(id, name) => setViewingTx({ id, name })}
           />
@@ -141,25 +203,30 @@ export default function Beleggingen() {
   )
 }
 
-function Overview({ portfolio }: { portfolio: Portfolio }) {
-  const gain = portfolio.total_gain_cents
-  const donutRows = portfolio.positions
-    .filter((p) => p.value_cents !== null && p.value_cents > 0)
-    .map((p) => ({ name: p.name, cents: p.value_cents as number }))
-
+function Overview({
+  totalValueCents,
+  totalCostCents,
+  gainCents,
+  gainPct,
+  donutRows,
+}: {
+  totalValueCents: number
+  totalCostCents: number
+  gainCents: number
+  gainPct: number | null
+  donutRows: { name: string; cents: number }[]
+}) {
   return (
     <section className="grid gap-4 lg:grid-cols-2">
       <div className="grid gap-4 sm:grid-cols-3 lg:col-span-1 lg:grid-cols-1">
-        <Tile label="Totale waarde" value={formatCents(portfolio.total_value_cents)} />
-        <Tile label="Totale inleg" value={formatCents(portfolio.total_cost_cents)} />
+        <Tile label="Totale waarde" value={formatCents(totalValueCents)} />
+        <Tile label="Totale inleg" value={formatCents(totalCostCents)} />
         <Tile
           label="Rendement"
-          value={`${gain > 0 ? '+' : ''}${formatCents(gain)}`}
-          tone={gain < 0 ? 'crit' : 'good'}
+          value={`${gainCents > 0 ? '+' : ''}${formatCents(gainCents)}`}
+          tone={gainCents < 0 ? 'crit' : 'good'}
           extra={
-            portfolio.total_gain_pct !== null
-              ? `${gain > 0 ? '+' : ''}${pctFmt.format(portfolio.total_gain_pct)} %`
-              : undefined
+            gainPct !== null ? `${gainCents > 0 ? '+' : ''}${pctFmt.format(gainPct)} %` : undefined
           }
         />
       </div>
@@ -197,11 +264,17 @@ function Tile({
 function PositionsTable({
   portfolio,
   securities,
+  selected,
+  selectedTotalValue,
+  onToggle,
   onEdit,
   onViewTransactions,
 }: {
   portfolio: Portfolio
   securities: Security[]
+  selected: Set<number>
+  selectedTotalValue: number
+  onToggle: (securityId: number) => void
   onEdit: (security: Security) => void
   onViewTransactions: (securityId: number, name: string) => void
 }) {
@@ -215,10 +288,11 @@ function PositionsTable({
   const byId = new Map(securities.map((s) => [s.id, s]))
   return (
     <section className="overflow-x-auto rounded-2xl border border-edge bg-surface">
-      <table className="w-full min-w-[880px] text-sm">
+      <table className="w-full min-w-[920px] text-sm">
         <thead>
           <tr className="border-b border-line text-xs text-ink-3">
-            <th className="px-5 py-3 text-left font-medium">Effect</th>
+            <th className="py-3 pl-5 pr-1" />
+            <th className="px-3 py-3 text-left font-medium">Effect</th>
             <th className="px-3 py-3 text-right font-medium">Aantal</th>
             <th className="px-3 py-3 text-right font-medium">Gem. aankoop</th>
             <th className="px-3 py-3 text-right font-medium">Koers</th>
@@ -229,40 +303,62 @@ function PositionsTable({
           </tr>
         </thead>
         <tbody className="tabular-nums">
-          {portfolio.positions.map((p) => (
-            <tr key={p.security_id} className="border-b border-line last:border-b-0 hover:bg-raised/50">
-              <td className="px-5 py-2">
-                {p.name}
-                {p.ticker ? (
-                  <span className="ml-2 text-xs text-ink-3">{p.ticker}</span>
-                ) : (
-                  <span className="ml-2 text-xs text-warn">geen ticker</span>
-                )}
-              </td>
-              <td className="px-3 py-2 text-right">{dec(p.shares)}</td>
-              <td className="px-3 py-2 text-right text-ink-2">{dec(p.avg_buy_price)}</td>
-              <td className="px-3 py-2 text-right text-ink-2">{dec(p.current_price)}</td>
-              <td className="px-3 py-2 text-right">
-                {p.value_cents !== null ? formatCentsPlain(p.value_cents) : '–'}
-              </td>
-              <td className="px-3 py-2 text-right">
-                {p.gain_cents === null ? (
-                  <span className="text-ink-3">–</span>
-                ) : (
-                  <span className={p.gain_cents < 0 ? 'text-crit' : 'text-good'}>
-                    {p.gain_cents > 0 ? '+' : ''}
-                    {formatCentsPlain(p.gain_cents)}
-                    {p.gain_pct !== null && (
-                      <span className="ml-1 text-xs text-ink-3">
-                        ({p.gain_pct > 0 ? '+' : ''}
-                        {pctFmt.format(p.gain_pct)} %)
-                      </span>
-                    )}
-                  </span>
-                )}
-              </td>
-              <td className="px-3 py-2 text-right text-ink-3">{pctFmt.format(p.portfolio_pct)} %</td>
-              <td className="whitespace-nowrap px-5 py-2 text-right">
+          {portfolio.positions.map((p) => {
+            const on = selected.has(p.security_id)
+            const pct =
+              on && p.value_cents !== null && selectedTotalValue > 0
+                ? (p.value_cents / selectedTotalValue) * 100
+                : null
+            return (
+              <tr
+                key={p.security_id}
+                className={`border-b border-line last:border-b-0 hover:bg-raised/50 ${
+                  on ? '' : 'opacity-45'
+                }`}
+              >
+                <td className="py-2 pl-5 pr-1">
+                  <input
+                    type="checkbox"
+                    checked={on}
+                    onChange={() => onToggle(p.security_id)}
+                    aria-label={`${p.name} meetellen`}
+                    className="size-4 accent-accent"
+                  />
+                </td>
+                <td className="px-3 py-2">
+                  {p.name}
+                  {p.ticker ? (
+                    <span className="ml-2 text-xs text-ink-3">{p.ticker}</span>
+                  ) : (
+                    <span className="ml-2 text-xs text-warn">geen ticker</span>
+                  )}
+                </td>
+                <td className="px-3 py-2 text-right">{dec(p.shares)}</td>
+                <td className="px-3 py-2 text-right text-ink-2">{dec2(p.avg_buy_price)}</td>
+                <td className="px-3 py-2 text-right text-ink-2">{dec2(p.current_price)}</td>
+                <td className="px-3 py-2 text-right">
+                  {p.value_cents !== null ? formatCentsPlain(p.value_cents) : '–'}
+                </td>
+                <td className="px-3 py-2 text-right">
+                  {p.gain_cents === null ? (
+                    <span className="text-ink-3">–</span>
+                  ) : (
+                    <span className={p.gain_cents < 0 ? 'text-crit' : 'text-good'}>
+                      {p.gain_cents > 0 ? '+' : ''}
+                      {formatCentsPlain(p.gain_cents)}
+                      {p.gain_pct !== null && (
+                        <span className="ml-1 text-xs text-ink-3">
+                          ({p.gain_pct > 0 ? '+' : ''}
+                          {pctFmt.format(p.gain_pct)} %)
+                        </span>
+                      )}
+                    </span>
+                  )}
+                </td>
+                <td className="px-3 py-2 text-right text-ink-3">
+                  {pct !== null ? `${pctFmt.format(pct)} %` : '–'}
+                </td>
+                <td className="whitespace-nowrap px-5 py-2 text-right">
                 <button
                   onClick={() => onViewTransactions(p.security_id, p.name)}
                   className="text-xs text-ink-3 hover:text-ink-2 hover:underline"
@@ -279,7 +375,8 @@ function PositionsTable({
                 )}
               </td>
             </tr>
-          ))}
+            )
+          })}
         </tbody>
       </table>
     </section>
