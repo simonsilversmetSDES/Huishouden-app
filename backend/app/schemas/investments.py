@@ -50,6 +50,25 @@ class SecurityTransactionOut(BaseModel):
     total: str
 
 
+class SecurityPriceIn(BaseModel):
+    security_id: int
+    date: date
+    price: str  # exacte Decimal-string
+
+
+class SecurityPriceOut(BaseModel):
+    id: int
+    security_id: int
+    date: date
+    price: str
+    source: str
+
+
+class PriceFetchResult(BaseModel):
+    fetched: int
+    failed: list[str]  # tickers/namen die niet opgehaald konden worden
+
+
 class PositionOut(BaseModel):
     security_id: int
     name: str
