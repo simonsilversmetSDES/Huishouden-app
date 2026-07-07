@@ -114,6 +114,23 @@ export interface AccountSnapshotPayload {
   balance_cents: number
 }
 
+export interface AccountPayload {
+  context_id: number
+  name: string
+  type: AccountType
+}
+
+export interface NetWorthContextTotal {
+  context_id: number
+  name: string
+  total_cents: number
+}
+
+export interface NetWorthSummary {
+  contexts: NetWorthContextTotal[]
+  total_cents: number
+}
+
 // Vermogensbalans (spec §9).
 export type AssetClass =
   | 'contant'

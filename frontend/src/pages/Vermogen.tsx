@@ -12,8 +12,10 @@ import {
 } from 'recharts'
 import { api, ApiError } from '../api/client'
 import type {
+  AccountPayload,
   AccountSnapshotPayload,
   AccountStatus,
+  AccountType,
   AssetClass,
   NetWorth,
   NetWorthPayload,
@@ -92,29 +94,150 @@ function AccountStatusSection({ contextId }: { contextId: number }) {
         </div>
       )}
 
-      {!error && status && status.accounts.length === 0 && (
-        <div className="rounded-2xl border border-dashed border-edge bg-surface p-8 text-center text-sm text-ink-2">
-          Nog geen rekeningen in deze context.
-        </div>
-      )}
-
-      {!error && status && status.accounts.length > 0 && (
+      {!error && status && (
         <>
-          {status.missing_current_month && (
-            <div className="flex items-center gap-2 rounded-2xl border border-warn/40 bg-surface px-4 py-3 text-sm text-ink-2">
-              <span aria-hidden className="inline-block size-2 rounded-full bg-warn" />
-              {status.missing_account_ids.length === status.accounts.length
-                ? 'Nog geen enkele rekeningstand voor deze maand ingevuld.'
-                : `${status.missing_account_ids.length} rekening(en) missen de stand van deze maand.`}
-            </div>
-          )}
+          <AccountsManager contextId={contextId} accounts={status.accounts} onChanged={load} />
 
-          <SnapshotForm status={status} onSaved={load} />
-          <AccountEvolution status={status} />
-          <StatusTable status={status} />
+          {status.accounts.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-edge bg-surface p-8 text-center text-sm text-ink-2">
+              Voeg hierboven rekeningen toe om maandstanden in te voeren.
+            </div>
+          ) : (
+            <>
+              {status.missing_current_month && (
+                <div className="flex items-center gap-2 rounded-2xl border border-warn/40 bg-surface px-4 py-3 text-sm text-ink-2">
+                  <span aria-hidden className="inline-block size-2 rounded-full bg-warn" />
+                  {status.missing_account_ids.length === status.accounts.length
+                    ? 'Nog geen enkele rekeningstand voor deze maand ingevuld.'
+                    : `${status.missing_account_ids.length} rekening(en) missen de stand van deze maand.`}
+                </div>
+              )}
+
+              <SnapshotForm status={status} onSaved={load} />
+              <AccountEvolution status={status} />
+              <details className="rounded-2xl border border-edge bg-surface">
+                <summary className="cursor-pointer px-5 py-3 text-sm font-medium text-ink-2">
+                  Alle maandstanden
+                </summary>
+                <StatusTable status={status} />
+              </details>
+            </>
+          )}
         </>
       )}
     </section>
+  )
+}
+
+const ACCOUNT_TYPES: { value: AccountType; label: string }[] = [
+  { value: 'zicht', label: 'Zichtrekening' },
+  { value: 'spaar', label: 'Spaarrekening' },
+  { value: 'belegging', label: 'Belegging' },
+  { value: 'andere', label: 'Andere' },
+]
+
+function AccountsManager({
+  contextId,
+  accounts,
+  onChanged,
+}: {
+  contextId: number
+  accounts: AccountStatus['accounts']
+  onChanged: () => void
+}) {
+  const [name, setName] = useState('')
+  const [type, setType] = useState<AccountType>('zicht')
+  const [error, setError] = useState<string | null>(null)
+
+  async function add(e: FormEvent) {
+    e.preventDefault()
+    if (name.trim() === '') {
+      setError('Naam is verplicht')
+      return
+    }
+    setError(null)
+    const payload: AccountPayload = { context_id: contextId, name: name.trim(), type }
+    try {
+      await api('/api/accounts', { method: 'POST', body: JSON.stringify(payload) })
+      setName('')
+      onChanged()
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Toevoegen mislukt')
+    }
+  }
+
+  async function rename(id: number, current: string, accType: AccountType) {
+    const next = window.prompt('Nieuwe naam voor de rekening:', current)
+    if (next === null || next.trim() === '' || next.trim() === current) return
+    const payload: AccountPayload = { context_id: contextId, name: next.trim(), type: accType }
+    await api(`/api/accounts/${id}`, { method: 'PUT', body: JSON.stringify(payload) })
+    onChanged()
+  }
+
+  async function remove(id: number, accName: string) {
+    if (!window.confirm(`Rekening "${accName}" verwijderen? De historiek blijft bewaard.`)) return
+    await api(`/api/accounts/${id}`, { method: 'DELETE' })
+    onChanged()
+  }
+
+  return (
+    <details className="rounded-2xl border border-edge bg-surface">
+      <summary className="cursor-pointer px-5 py-3 text-sm font-medium text-ink-2">
+        Rekeningen beheren
+      </summary>
+      <div className="space-y-3 border-t border-line px-5 py-4">
+        {accounts.length > 0 && (
+          <ul className="space-y-1.5 text-sm">
+            {accounts.map((a) => (
+              <li key={a.id} className="flex items-center gap-2">
+                <span className="truncate">{a.name}</span>
+                <span className="text-xs text-ink-3">{a.type}</span>
+                <span className="ml-auto flex gap-3">
+                  <button
+                    onClick={() => void rename(a.id, a.name, a.type)}
+                    className="text-xs text-ink-3 hover:text-ink-2 hover:underline"
+                  >
+                    Hernoemen
+                  </button>
+                  <button
+                    onClick={() => void remove(a.id, a.name)}
+                    className="text-xs text-ink-3 hover:text-crit hover:underline"
+                  >
+                    Verwijderen
+                  </button>
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+        <form onSubmit={add} className="flex flex-wrap items-center gap-2">
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Nieuwe rekening (bv. Vrije ruimte Degiro)"
+            className="flex-1 rounded-lg border border-edge bg-page px-3 py-1.5 text-sm focus:border-accent focus:outline-none"
+          />
+          <select
+            value={type}
+            onChange={(e) => setType(e.target.value as AccountType)}
+            className="rounded-lg border border-edge bg-page px-2 py-1.5 text-sm focus:border-accent focus:outline-none"
+          >
+            {ACCOUNT_TYPES.map((t) => (
+              <option key={t.value} value={t.value}>
+                {t.label}
+              </option>
+            ))}
+          </select>
+          <button
+            type="submit"
+            className="rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-white hover:bg-accent/85"
+          >
+            Toevoegen
+          </button>
+          {error && <span className="text-sm text-crit">{error}</span>}
+        </form>
+      </div>
+    </details>
   )
 }
 
