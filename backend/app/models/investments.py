@@ -46,3 +46,17 @@ class SecurityPrice(Base):
     source: Mapped[str] = mapped_column(String, default="manual")  # 'yfinance' | 'manual'
 
     __table_args__ = (UniqueConstraint("security_id", "date"),)
+
+
+class SecuritySplit(Base):
+    """Aandelensplitsing: transacties vóór `date` krijgen aantal × ratio en
+    prijs ÷ ratio (bv. ratio 25 = een 25:1-split)."""
+
+    __tablename__ = "security_splits"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    security_id: Mapped[int] = mapped_column(ForeignKey("securities.id"))
+    date: Mapped[date] = mapped_column(Date)
+    ratio: Mapped[Decimal] = mapped_column(PreciseDecimal)
+
+    __table_args__ = (UniqueConstraint("security_id", "date"),)

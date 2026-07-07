@@ -1,5 +1,6 @@
-"""Beleggingen-endpoints (spec §7): effecten, transactielog en portefeuille."""
+"""Beleggingen-endpoints (spec §7): effecten, transactielog, splits en portefeuille."""
 
+from decimal import Decimal, InvalidOperation
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -9,12 +10,14 @@ from sqlalchemy.orm import Session
 from app.auth.deps import CurrentUser
 from app.config import Settings, get_settings
 from app.database import get_db
-from app.models import Context, Security, SecurityPrice, SecurityTransaction
+from app.models import Context, Security, SecurityPrice, SecuritySplit, SecurityTransaction
 from app.schemas.investments import (
     PortfolioOut,
     SecurityIn,
     SecurityOut,
     SecuritySearchHit,
+    SecuritySplitIn,
+    SecuritySplitOut,
     SecurityTransactionIn,
     SecurityTransactionOut,
 )
@@ -216,6 +219,65 @@ def delete_transaction(
     if tx is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Onbekende transactie")
     db.delete(tx)
+    db.commit()
+
+
+# --- Splits ---
+
+
+def _split_out(split: SecuritySplit) -> SecuritySplitOut:
+    return SecuritySplitOut(
+        id=split.id, security_id=split.security_id, date=split.date, ratio=str(split.ratio)
+    )
+
+
+@router.get("/api/security-splits", response_model=list[SecuritySplitOut])
+def list_splits(
+    _user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+    security_id: int,
+) -> list[SecuritySplitOut]:
+    _get_security(db, security_id)
+    rows = db.scalars(
+        select(SecuritySplit)
+        .where(SecuritySplit.security_id == security_id)
+        .order_by(SecuritySplit.date)
+    ).all()
+    return [_split_out(s) for s in rows]
+
+
+@router.post(
+    "/api/security-splits", status_code=status.HTTP_201_CREATED, response_model=SecuritySplitOut
+)
+def create_split(
+    body: SecuritySplitIn,
+    _user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+) -> SecuritySplitOut:
+    _get_security(db, body.security_id)
+    invalid = HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Ongeldige ratio")
+    try:
+        ratio = Decimal(body.ratio)
+    except InvalidOperation as exc:
+        raise invalid from exc
+    if ratio <= 0:
+        raise invalid
+    split = SecuritySplit(security_id=body.security_id, date=body.date, ratio=ratio)
+    db.add(split)
+    db.commit()
+    return _split_out(split)
+
+
+@router.delete("/api/security-splits/{split_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_split(
+    split_id: int,
+    _user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+) -> None:
+    split = db.get(SecuritySplit, split_id)
+    if split is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Onbekende split")
+    db.delete(split)
     db.commit()
 
 

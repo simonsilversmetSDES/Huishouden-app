@@ -12,7 +12,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import Context, Security, SecurityPrice, SecurityTransaction
+from app.models import Context, Security, SecurityPrice, SecuritySplit, SecurityTransaction
 from app.models.enums import SecuritySide
 from app.schemas.investments import RealizedYearOut
 from app.services.investments import build_portfolio
@@ -86,6 +86,33 @@ class TestGemiddeldeAankoopprijs:
         assert pos.value_cents is None
         assert pos.gain_cents is None
         assert pos.cost_cents == 100000
+
+
+class TestStockSplit:
+    def test_split_past_aantal_en_gemiddelde_aan(self, seeded_db: Session) -> None:
+        ctx = _context(seeded_db)
+        sec = _security(seeded_db, ctx, "SPYI")
+        # 17 stuks vóór de split (à 200, totaal 3400), dan 25:1-split, dan 630 stuks
+        _tx(seeded_db, sec, date(2026, 1, 1), SecuritySide.BUY, "17", "200", "3400.00")
+        _tx(seeded_db, sec, date(2026, 4, 1), SecuritySide.BUY, "630", "10", "6300.00")
+        seeded_db.add(
+            SecuritySplit(security_id=sec.id, date=date(2026, 2, 1), ratio=Decimal("25"))
+        )
+        seeded_db.commit()
+
+        pos = build_portfolio(seeded_db, ctx).positions[0]
+        # 17 × 25 = 425, + 630 = 1055 aandelen
+        assert pos.shares == "1055"
+        # gemiddelde = (3400 + 6300) / 1055
+        assert pos.avg_buy_price == "9.194313"
+
+    def test_zonder_split_ongewijzigd(self, seeded_db: Session) -> None:
+        ctx = _context(seeded_db)
+        sec = _security(seeded_db, ctx, "GEEN")
+        _tx(seeded_db, sec, date(2026, 1, 1), SecuritySide.BUY, "10", "100", "1000.00")
+        seeded_db.commit()
+        pos = build_portfolio(seeded_db, ctx).positions[0]
+        assert pos.shares == "10"
 
 
 class TestPortefeuille:

@@ -36,6 +36,19 @@ class SecuritySearchHit(BaseModel):
     quote_type: str | None
 
 
+class SecuritySplitIn(BaseModel):
+    security_id: int
+    date: date
+    ratio: str  # bv. "25" voor een 25:1-split
+
+
+class SecuritySplitOut(BaseModel):
+    id: int
+    security_id: int
+    date: date
+    ratio: str
+
+
 class SecurityTransactionIn(BaseModel):
     security_id: int
     date: date

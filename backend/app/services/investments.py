@@ -18,12 +18,13 @@ met de getoonde waarde en kostprijs.
 from __future__ import annotations
 
 from collections import defaultdict
+from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import Context, Security, SecurityPrice, SecurityTransaction
+from app.models import Context, Security, SecurityPrice, SecuritySplit, SecurityTransaction
 from app.models.enums import SecuritySide
 from app.schemas.investments import (
     PortfolioOut,
@@ -51,6 +52,16 @@ def _latest_prices(db: Session, security_ids: list[int]) -> dict[int, Decimal]:
 
 def _pct(numerator: int, denominator: int) -> float | None:
     return float(Decimal(numerator) / Decimal(denominator) * 100) if denominator else None
+
+
+def _split_factor(splits: list[SecuritySplit], tx_date: date) -> Decimal:
+    """Cumulatieve factor: product van de ratio's van alle splits ná de transactie
+    (een 25:1-split na je aankoop maakt van 1 aandeel er 25)."""
+    factor = Decimal(1)
+    for split in splits:
+        if split.date > tx_date:
+            factor *= split.ratio
+    return factor
 
 
 def build_portfolio(db: Session, context: Context) -> PortfolioOut:
@@ -84,17 +95,25 @@ def build_portfolio(db: Session, context: Context) -> PortfolioOut:
         by_security[tx.security_id].append(tx)
     latest = _latest_prices(db, security_ids)
 
+    splits_by_security: dict[int, list[SecuritySplit]] = defaultdict(list)
+    for split in db.scalars(
+        select(SecuritySplit).where(SecuritySplit.security_id.in_(security_ids))
+    ):
+        splits_by_security[split.security_id].append(split)
+
     realized: list[RealizedGainOut] = []
     computed: list[dict] = []
     total_value = 0
     total_cost = 0
     for security in securities:
         txns = by_security.get(security.id, [])
+        splits = splits_by_security.get(security.id, [])
         buys = [t for t in txns if t.side == SecuritySide.BUY]
         sells = [t for t in txns if t.side == SecuritySide.SELL]
-        shares_bought = sum((t.shares for t in buys), ZERO)
+        # Aantallen naar huidige (post-split) eenheden brengen; totaal (= geld) blijft.
+        shares_bought = sum((t.shares * _split_factor(splits, t.date) for t in buys), ZERO)
         total_bought = sum((t.total for t in buys), ZERO)
-        shares_sold = sum((t.shares for t in sells), ZERO)
+        shares_sold = sum((t.shares * _split_factor(splits, t.date) for t in sells), ZERO)
         net = shares_bought - shares_sold
         avg = (total_bought / shares_bought).quantize(SIX, ROUND_HALF_UP) if shares_bought else None
 
@@ -121,8 +140,9 @@ def build_portfolio(db: Session, context: Context) -> PortfolioOut:
         for sell in sells:
             if avg is None:
                 continue
-            proceeds_cents = to_cents(sell.price_per_share * sell.shares)
-            cost_basis_cents = to_cents(avg * sell.shares)
+            adjusted_sold = sell.shares * _split_factor(splits, sell.date)
+            proceeds_cents = to_cents(sell.price_per_share * sell.shares)  # echte opbrengst
+            cost_basis_cents = to_cents(avg * adjusted_sold)
             realized.append(
                 RealizedGainOut(
                     security_id=security.id,

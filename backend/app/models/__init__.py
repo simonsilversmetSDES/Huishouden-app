@@ -3,7 +3,12 @@
 from app.models.base import Base
 from app.models.budget import Budget
 from app.models.core import Account, Category, Context, User
-from app.models.investments import Security, SecurityPrice, SecurityTransaction
+from app.models.investments import (
+    Security,
+    SecurityPrice,
+    SecuritySplit,
+    SecurityTransaction,
+)
 from app.models.loans import Loan, LoanPayment
 from app.models.snapshots import AccountSnapshot, NetWorthSnapshot
 from app.models.transactions import CategorizationRule, Import, Transaction
@@ -23,6 +28,7 @@ __all__ = [
     "Security",
     "SecurityTransaction",
     "SecurityPrice",
+    "SecuritySplit",
     "Loan",
     "LoanPayment",
 ]
