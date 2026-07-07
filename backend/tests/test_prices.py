@@ -1,5 +1,8 @@
 """Koers-endpoints (spec §7): manuele invoer + fetch-gate. Geen netwerk in tests."""
 
+from decimal import Decimal
+
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -7,6 +10,21 @@ from sqlalchemy.orm import Session
 from app.config import Settings, get_settings
 from app.main import app
 from app.models import Context, Security, SecurityPrice
+from app.services.prices import to_eur
+
+
+class TestToEur:
+    def test_eur_ongewijzigd(self) -> None:
+        assert to_eur(Decimal("100"), "EUR", None) == Decimal("100")
+        assert to_eur(Decimal("100"), None, None) == Decimal("100")
+
+    def test_usd_omgerekend(self) -> None:
+        # 100 USD × 0,92 EUR/USD = 92 EUR
+        assert to_eur(Decimal("100"), "USD", Decimal("0.92")) == Decimal("92.000000")
+
+    def test_zonder_koers_fout(self) -> None:
+        with pytest.raises(ValueError, match="wisselkoers"):
+            to_eur(Decimal("100"), "USD", None)
 
 
 def _security(db: Session, name: str = "IWDA", ticker: str | None = "IWDA") -> Security:
