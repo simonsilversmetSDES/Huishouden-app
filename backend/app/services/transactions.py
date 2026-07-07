@@ -127,6 +127,8 @@ def to_out(tx: Transaction, category_name: str | None) -> TransactionOut:
         amount_cents=to_cents(tx.amount),
         category_id=tx.category_id,
         category_name=category_name,
+        counterparty_name=tx.counterparty_name,
+        counterparty_iban=tx.counterparty_iban,
         description=tx.description,
         source=tx.source,
         is_internal_transfer=tx.is_internal_transfer,

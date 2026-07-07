@@ -41,6 +41,8 @@ class TransactionOut(BaseModel):
     amount_cents: int  # signed: + = inkomen, − = uitgave/sparen
     category_id: int | None
     category_name: str | None
+    counterparty_name: str | None
+    counterparty_iban: str | None
     description: str | None
     source: TransactionSource
     is_internal_transfer: bool

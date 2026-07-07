@@ -8,6 +8,7 @@ from app.routes import (
     dashboard,
     health,
     imports,
+    rules,
     transactions,
 )
 
@@ -26,3 +27,4 @@ app.include_router(budgets.router)
 app.include_router(dashboard.router)
 app.include_router(transactions.router)
 app.include_router(imports.router)
+app.include_router(rules.router)
