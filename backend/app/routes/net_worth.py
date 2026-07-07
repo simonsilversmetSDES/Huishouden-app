@@ -1,0 +1,80 @@
+"""Vermogensbalans-endpoints (spec §9): waarde per activaklasse per maand.
+
+Upsert op UNIQUE(context_id, snapshot_date, asset_class). De GET geeft de volledige
+reeks (evolutie + laatste maand voor de donut) via build_net_worth.
+"""
+
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.auth.deps import CurrentUser
+from app.database import get_db
+from app.models import Context, NetWorthSnapshot
+from app.schemas.snapshots import NetWorthIn, NetWorthOut
+from app.services.budget import from_cents
+from app.services.net_worth import build_net_worth
+
+router = APIRouter(prefix="/api/net-worth", tags=["net-worth"])
+
+
+def _get_context(db: Session, context_id: int) -> Context:
+    context = db.get(Context, context_id)
+    if context is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Onbekende context")
+    return context
+
+
+@router.get("", response_model=NetWorthOut)
+def net_worth(
+    _user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+    context_id: int,
+) -> NetWorthOut:
+    context = _get_context(db, context_id)
+    return build_net_worth(db, context)
+
+
+@router.put("", response_model=NetWorthOut)
+def upsert_net_worth(
+    body: NetWorthIn,
+    _user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+) -> NetWorthOut:
+    context = _get_context(db, body.context_id)
+    existing = db.scalars(
+        select(NetWorthSnapshot).where(
+            NetWorthSnapshot.context_id == body.context_id,
+            NetWorthSnapshot.snapshot_date == body.snapshot_date,
+            NetWorthSnapshot.asset_class == body.asset_class,
+        )
+    ).one_or_none()
+    value = from_cents(body.value_cents)
+    if existing is None:
+        db.add(
+            NetWorthSnapshot(
+                context_id=body.context_id,
+                snapshot_date=body.snapshot_date,
+                asset_class=body.asset_class,
+                value=value,
+            )
+        )
+    else:
+        existing.value = value
+    db.commit()
+    return build_net_worth(db, context)
+
+
+@router.delete("/{snapshot_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_net_worth(
+    snapshot_id: int,
+    _user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+) -> None:
+    snapshot = db.get(NetWorthSnapshot, snapshot_id)
+    if snapshot is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Onbekende snapshot")
+    db.delete(snapshot)
+    db.commit()
