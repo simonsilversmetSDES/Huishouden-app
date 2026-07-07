@@ -72,6 +72,12 @@ export interface Category {
   type: CategoryType
 }
 
+export interface CategoryPayload {
+  context_id: number
+  name: string
+  type: CategoryType
+}
+
 export interface Transaction {
   id: number
   context_id: number

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type KeyboardEvent } from 'react'
-import { api } from '../api/client'
-import type { BudgetCellUpdate, BudgetMatrix } from '../api/types'
+import { api, ApiError } from '../api/client'
+import type { BudgetCellUpdate, BudgetMatrix, Category, CategoryPayload, CategoryType } from '../api/types'
 import { formatCentsPlain, MAAND_KORT, parseEuroToCents } from '../lib/format'
 import { useAppState } from '../state/AppState'
 
@@ -9,6 +9,7 @@ export default function Budget() {
   const [year, setYear] = useState(() => new Date().getFullYear())
   const [matrix, setMatrix] = useState<BudgetMatrix | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [catError, setCatError] = useState<string | null>(null)
 
   const load = useCallback(() => {
     if (contextId === null) return
@@ -27,6 +28,48 @@ export default function Budget() {
         body: JSON.stringify({ items }),
       })
       load()
+    },
+    [load],
+  )
+
+  const addCategory = useCallback(
+    async (type: CategoryType, name: string): Promise<boolean> => {
+      if (contextId === null) return false
+      setCatError(null)
+      const payload: CategoryPayload = { context_id: contextId, name, type }
+      try {
+        await api<Category>('/api/categories', { method: 'POST', body: JSON.stringify(payload) })
+        load()
+        return true
+      } catch (err) {
+        setCatError(
+          err instanceof ApiError && err.status === 409
+            ? `Categorie "${name}" bestaat al in deze context`
+            : 'Categorie toevoegen mislukt — probeer opnieuw',
+        )
+        return false
+      }
+    },
+    [contextId, load],
+  )
+
+  const deleteCategory = useCallback(
+    async (id: number, name: string) => {
+      if (
+        !window.confirm(
+          `Categorie "${name}" verwijderen? Ze verdwijnt uit de kiezers en de budgetmatrix; ` +
+            'bestaande transacties houden hun categorie.',
+        )
+      ) {
+        return
+      }
+      setCatError(null)
+      try {
+        await api<void>(`/api/categories/${id}`, { method: 'DELETE' })
+        load()
+      } catch {
+        setCatError('Categorie verwijderen mislukt — probeer opnieuw')
+      }
     },
     [load],
   )
@@ -62,7 +105,21 @@ export default function Budget() {
         </div>
       )}
 
-      {!error && matrix && <MatrixTable matrix={matrix} year={year} onSave={save} />}
+      {catError && (
+        <div className="rounded-2xl border border-crit/40 bg-surface p-4 text-sm text-crit">
+          {catError}
+        </div>
+      )}
+
+      {!error && matrix && (
+        <MatrixTable
+          matrix={matrix}
+          year={year}
+          onSave={save}
+          onAddCategory={addCategory}
+          onDeleteCategory={deleteCategory}
+        />
+      )}
       {!error && !matrix && <p className="py-12 text-center text-sm text-ink-3">Laden…</p>}
 
       <p className="text-xs text-ink-3">
@@ -77,9 +134,11 @@ interface MatrixTableProps {
   matrix: BudgetMatrix
   year: number
   onSave: (items: BudgetCellUpdate[]) => Promise<void>
+  onAddCategory: (type: CategoryType, name: string) => Promise<boolean>
+  onDeleteCategory: (id: number, name: string) => void
 }
 
-function MatrixTable({ matrix, year, onSave }: MatrixTableProps) {
+function MatrixTable({ matrix, year, onSave, onAddCategory, onDeleteCategory }: MatrixTableProps) {
   return (
     <div className="overflow-x-auto rounded-2xl border border-edge bg-surface">
       <table className="w-full min-w-[980px] border-collapse text-sm">
@@ -116,7 +175,14 @@ function MatrixTable({ matrix, year, onSave }: MatrixTableProps) {
           </tr>
 
           {matrix.groups.map((group) => (
-            <GroupRows key={group.type} group={group} year={year} onSave={onSave} />
+            <GroupRows
+              key={group.type}
+              group={group}
+              year={year}
+              onSave={onSave}
+              onAddCategory={onAddCategory}
+              onDeleteCategory={onDeleteCategory}
+            />
           ))}
         </tbody>
       </table>
@@ -134,10 +200,14 @@ function GroupRows({
   group,
   year,
   onSave,
+  onAddCategory,
+  onDeleteCategory,
 }: {
   group: BudgetMatrix['groups'][number]
   year: number
   onSave: (items: BudgetCellUpdate[]) => Promise<void>
+  onAddCategory: (type: CategoryType, name: string) => Promise<boolean>
+  onDeleteCategory: (id: number, name: string) => void
 }) {
   return (
     <>
@@ -151,8 +221,18 @@ function GroupRows({
       </tr>
       {group.categories.map((row) => (
         <tr key={row.category_id} className="group/row">
-          <td className="sticky left-0 z-10 max-w-56 truncate bg-surface px-4 py-1 text-ink-2">
-            {row.name}
+          <td className="sticky left-0 z-10 bg-surface px-4 py-1 text-ink-2">
+            <div className="flex items-center gap-2">
+              <span className="max-w-48 truncate">{row.name}</span>
+              <button
+                onClick={() => onDeleteCategory(row.category_id, row.name)}
+                aria-label={`Categorie ${row.name} verwijderen`}
+                title="Categorie verwijderen"
+                className="text-ink-3 opacity-0 transition-opacity hover:text-crit group-hover/row:opacity-100"
+              >
+                ×
+              </button>
+            </div>
           </td>
           {row.month_cents.map((cents, monthIdx) => (
             <EditableCell
@@ -169,6 +249,7 @@ function GroupRows({
           </td>
         </tr>
       ))}
+      <AddCategoryRow type={group.type} onAdd={onAddCategory} />
       <tr className="border-t border-line/60">
         <td className="sticky left-0 z-10 bg-surface px-4 py-2 text-xs text-ink-3">
           Totaal {group.type.toLowerCase()}
@@ -183,6 +264,73 @@ function GroupRows({
         </td>
       </tr>
     </>
+  )
+}
+
+function AddCategoryRow({
+  type,
+  onAdd,
+}: {
+  type: CategoryType
+  onAdd: (type: CategoryType, name: string) => Promise<boolean>
+}) {
+  const [open, setOpen] = useState(false)
+  const [name, setName] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  function close() {
+    setOpen(false)
+    setName('')
+  }
+
+  async function submit() {
+    const trimmed = name.trim()
+    if (!trimmed) return
+    setBusy(true)
+    const ok = await onAdd(type, trimmed)
+    setBusy(false)
+    if (ok) close()
+  }
+
+  return (
+    <tr>
+      <td colSpan={14} className="sticky left-0 bg-surface px-4 py-1.5">
+        {open ? (
+          <div className="flex items-center gap-2">
+            <input
+              autoFocus
+              value={name}
+              disabled={busy}
+              onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  void submit()
+                } else if (e.key === 'Escape') {
+                  close()
+                }
+              }}
+              placeholder={`Nieuwe ${type.toLowerCase()}-categorie`}
+              className="w-56 rounded-lg border border-accent bg-page px-2 py-1 text-sm focus:outline-none"
+            />
+            <button
+              onClick={() => void submit()}
+              disabled={busy}
+              className="rounded-lg bg-accent px-2.5 py-1 text-xs font-medium text-white hover:bg-accent/85 disabled:opacity-50"
+            >
+              Toevoegen
+            </button>
+            <button onClick={close} className="text-xs text-ink-3 hover:text-ink-2">
+              Annuleren
+            </button>
+          </div>
+        ) : (
+          <button onClick={() => setOpen(true)} className="text-xs text-ink-3 hover:text-accent">
+            + categorie
+          </button>
+        )}
+      </td>
+    </tr>
   )
 }
 
