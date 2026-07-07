@@ -27,6 +27,30 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T
 }
 
+/**
+ * Zoals `api`, maar voor multipart-upload: géén Content-Type meegeven zodat de
+ * browser zelf de multipart-boundary zet (nodig voor bestand-upload naar
+ * /api/imports/preview).
+ */
+export async function apiUpload<T>(path: string, formData: FormData): Promise<T> {
+  const response = await fetch(path, {
+    method: 'POST',
+    credentials: 'same-origin',
+    body: formData,
+  })
+  if (!response.ok) {
+    let detail = response.statusText
+    try {
+      const body = (await response.json()) as { detail?: string }
+      if (body.detail) detail = body.detail
+    } catch {
+      // geen JSON-body, statusText volstaat
+    }
+    throw new ApiError(response.status, detail)
+  }
+  return (await response.json()) as T
+}
+
 export interface User {
   id: number
   name: string

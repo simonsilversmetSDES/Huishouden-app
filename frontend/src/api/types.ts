@@ -97,3 +97,70 @@ export interface TransactionPayload {
   category_id: number | null
   description: string | null
 }
+
+// CSV-import (spec §5.2). Bedragen signed integer-centen, zoals de preview ze geeft.
+export type Bank = 'KBC' | 'Fortis' | 'Andere'
+export type Categorization = 'auto' | 'manual' | 'uncategorized'
+
+export interface AccountRef {
+  id: number
+  name: string
+  context_id: number
+  context_name: string
+}
+
+export interface PreviewRow {
+  date: string // ISO
+  effective_date: string // ISO
+  amount_cents: number // signed
+  type: CategoryType
+  counterparty_name: string | null
+  counterparty_iban: string | null
+  description: string | null
+  import_hash: string
+  duplicate: boolean
+  is_internal_transfer: boolean
+  suggested_category_id: number | null
+  suggested_category_name: string | null
+  matched_rule_id: number | null
+}
+
+export interface ImportPreview {
+  bank: Bank
+  filename: string
+  account: AccountRef | null
+  unmatched_ibans: string[]
+  rows: PreviewRow[]
+  new_count: number
+  duplicate_count: number
+  uncategorized_count: number
+  skipped: string[]
+}
+
+export interface CommitRow {
+  date: string
+  effective_date: string | null
+  amount_cents: number
+  type: CategoryType
+  counterparty_name: string | null
+  counterparty_iban: string | null
+  description: string | null
+  import_hash: string
+  category_id: number | null
+  categorization: Categorization
+  is_internal_transfer: boolean
+}
+
+export interface ImportCommit {
+  filename: string
+  bank: Bank
+  account_id: number
+  context_id: number
+  rows: CommitRow[]
+}
+
+export interface ImportResult {
+  import_id: number
+  created_count: number
+  duplicate_count: number
+}

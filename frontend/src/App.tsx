@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from './auth/AuthContext'
 import AppShell from './components/AppShell'
 import Budget from './pages/Budget'
 import Dashboard from './pages/Dashboard'
+import Import from './pages/Import'
 import Login from './pages/Login'
 import Transactions from './pages/Transactions'
 import { AppStateProvider } from './state/AppState'
@@ -42,6 +43,7 @@ export default function App() {
           >
             <Route path="/" element={<Dashboard />} />
             <Route path="/transacties" element={<Transactions />} />
+            <Route path="/import" element={<Import />} />
             <Route path="/budget" element={<Budget />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
