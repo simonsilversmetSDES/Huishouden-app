@@ -1,14 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api/client'
-import type {
-  AccountStatus,
-  CategoryStatus,
-  CategoryType,
-  DashboardData,
-  NetWorth,
-  TypeTotal,
-} from '../api/types'
+import type { AccountStatus, CategoryStatus, CategoryType, DashboardData, TypeTotal } from '../api/types'
 import DonutCard from '../components/DonutCard'
 import Meter, { spendingTone, type MeterTone } from '../components/Meter'
 import PeriodPicker, { currentPeriod, type Period } from '../components/PeriodPicker'
@@ -74,60 +67,28 @@ export default function Dashboard() {
   )
 }
 
-// Vermogen op het hoofddashboard (spec §9): totaal + verandering deze maand, met
-// een reminder wanneer de rekeningsnapshot van deze maand ontbreekt.
+// Reminder op het hoofddashboard (spec §9) wanneer de rekeningstand van deze
+// maand ontbreekt. (Het totaal vermogen zelf staat enkel op de Vermogen-tab.)
 function VermogenGlance({ contextId }: { contextId: number }) {
-  const [netWorth, setNetWorth] = useState<NetWorth | null>(null)
   const [status, setStatus] = useState<AccountStatus | null>(null)
 
   useEffect(() => {
-    setNetWorth(null)
     setStatus(null)
-    api<NetWorth>(`/api/net-worth?context_id=${contextId}`)
-      .then(setNetWorth)
-      .catch(() => setNetWorth(null))
     api<AccountStatus>(`/api/account-snapshots?context_id=${contextId}`)
       .then(setStatus)
       .catch(() => setStatus(null))
   }, [contextId])
 
-  const missing = status?.missing_current_month ?? false
-  const hasNetWorth = netWorth !== null && netWorth.latest_date !== null
-
-  if (!missing && !hasNetWorth) return null
+  if (!status?.missing_current_month) return null
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2">
-      {hasNetWorth && netWorth && (
-        <Link
-          to="/financien/vermogen"
-          className="rounded-2xl border border-edge bg-surface p-5 transition-colors hover:bg-raised/40"
-        >
-          <p className="text-sm text-ink-3">Totaal vermogen</p>
-          <p className="mt-1 text-2xl font-semibold tracking-tight">
-            {formatCents(netWorth.latest_total_cents)}
-          </p>
-          <p className="mt-2 text-xs text-ink-3">
-            {netWorth.latest_change_cents !== null && (
-              <span className={netWorth.latest_change_cents < 0 ? 'text-crit' : 'text-good'}>
-                {netWorth.latest_change_cents > 0 ? '+' : ''}
-                {formatCents(netWorth.latest_change_cents)}
-              </span>
-            )}
-            {netWorth.latest_change_cents !== null ? ' deze maand' : 'stand bijgewerkt'}
-          </p>
-        </Link>
-      )}
-      {missing && (
-        <Link
-          to="/financien/vermogen"
-          className="flex items-center gap-2 rounded-2xl border border-warn/40 bg-surface px-4 py-3 text-sm text-ink-2 transition-colors hover:bg-raised/40"
-        >
-          {toneDot('warn')}
-          Rekeningstand van deze maand ontbreekt — vul ze in op Vermogen.
-        </Link>
-      )}
-    </div>
+    <Link
+      to="/financien/vermogen"
+      className="flex items-center gap-2 rounded-2xl border border-warn/40 bg-surface px-4 py-3 text-sm text-ink-2 transition-colors hover:bg-raised/40"
+    >
+      {toneDot('warn')}
+      Rekeningstand van deze maand ontbreekt — vul ze in op Vermogen.
+    </Link>
   )
 }
 
