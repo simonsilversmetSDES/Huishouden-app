@@ -47,6 +47,30 @@ def upsert_price(
     return existing
 
 
+def search_symbols(query: str, limit: int = 8) -> list[dict]:
+    """Yahoo-symbolen zoeken via yfinance (externe call). Best effort → [] bij fout."""
+    import yfinance  # lui geïmporteerd
+
+    try:
+        quotes = yfinance.Search(query, max_results=limit).quotes
+    except Exception:
+        return []
+    hits: list[dict] = []
+    for q in quotes:
+        symbol = q.get("symbol")
+        if not symbol:
+            continue
+        hits.append(
+            {
+                "symbol": symbol,
+                "name": q.get("shortname") or q.get("longname"),
+                "exchange": q.get("exchange"),
+                "quote_type": q.get("quoteType"),
+            }
+        )
+    return hits
+
+
 def fetch_prices(db: Session, securities: list[Security], today: date) -> FetchResult:
     """Actuele koers per effect met ticker ophalen via yfinance en cachen.
 

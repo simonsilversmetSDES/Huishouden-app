@@ -8,11 +8,44 @@ Alles Decimal (nooit float).
 
 from __future__ import annotations
 
+import re
 from decimal import Decimal, InvalidOperation
 
 from app.models import SecurityTransaction
 from app.models.enums import SecuritySide
 from app.schemas.investments import SecurityTransactionIn
+
+# Beurscode in de gemigreerde naam ("… (XETR:VWCE)") → yfinance-suffix.
+_EXCHANGE_SUFFIX: dict[str, str] = {
+    "XETR": ".DE",  # Xetra (Frankfurt)
+    "XFRA": ".F",
+    "XAMS": ".AS",  # Euronext Amsterdam
+    "XBRU": ".BR",  # Euronext Brussel
+    "XPAR": ".PA",  # Euronext Parijs
+    "XLON": ".L",  # London
+    "XMIL": ".MI",  # Milaan
+    "XMAD": ".MC",  # Madrid
+    "XSWX": ".SW",  # Zwitserland
+    "XNAS": "",  # US: geen suffix
+    "XNYS": "",
+}
+_PAREN_TICKER = re.compile(r"\(([A-Z0-9]+):([A-Za-z0-9.\-]+)\)")
+
+
+def suggest_ticker(name: str) -> str | None:
+    """Yfinance-ticker afleiden uit de effectnaam, of None als het niet lukt.
+
+    "ALPHABET INC. (XETR:ABEA)" → "ABEA.DE"; "BTC/EUR" → "BTC-EUR". Onbekende
+    beurs → None (gebruiker vult dan zelf in of zoekt via Yahoo).
+    """
+    match = _PAREN_TICKER.search(name)
+    if match:
+        exchange, symbol = match.group(1), match.group(2)
+        suffix = _EXCHANGE_SUFFIX.get(exchange)
+        return None if suffix is None else f"{symbol}{suffix}"
+    if "/" in name:  # crypto-paar, bv. BTC/EUR
+        return name.replace("/", "-")
+    return None
 
 
 class InvalidAmountError(ValueError):

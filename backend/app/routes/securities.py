@@ -7,19 +7,33 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.auth.deps import CurrentUser
+from app.config import Settings, get_settings
 from app.database import get_db
 from app.models import Context, Security, SecurityPrice, SecurityTransaction
 from app.schemas.investments import (
     PortfolioOut,
     SecurityIn,
     SecurityOut,
+    SecuritySearchHit,
     SecurityTransactionIn,
     SecurityTransactionOut,
 )
 from app.services.investments import build_portfolio
-from app.services.securities import InvalidAmountError, apply_transaction
+from app.services.prices import search_symbols
+from app.services.securities import InvalidAmountError, apply_transaction, suggest_ticker
 
 router = APIRouter(tags=["investments"])
+
+
+def _security_out(security: Security) -> SecurityOut:
+    return SecurityOut(
+        id=security.id,
+        name=security.name,
+        ticker=security.ticker,
+        isin=security.isin,
+        owner_context_id=security.owner_context_id,
+        suggested_ticker=suggest_ticker(security.name) if not security.ticker else None,
+    )
 
 
 def _get_context(db: Session, context_id: int) -> Context:
@@ -58,15 +72,27 @@ def list_securities(
     _user: CurrentUser,
     db: Annotated[Session, Depends(get_db)],
     context_id: int,
-) -> list[Security]:
+) -> list[SecurityOut]:
     _get_context(db, context_id)
-    return list(
-        db.scalars(
-            select(Security)
-            .where(Security.owner_context_id == context_id)
-            .order_by(Security.name)
-        ).all()
-    )
+    rows = db.scalars(
+        select(Security).where(Security.owner_context_id == context_id).order_by(Security.name)
+    ).all()
+    return [_security_out(s) for s in rows]
+
+
+@router.get("/api/securities/search", response_model=list[SecuritySearchHit])
+def search_securities(
+    _user: CurrentUser,
+    settings: Annotated[Settings, Depends(get_settings)],
+    q: str,
+) -> list[SecuritySearchHit]:
+    if not settings.price_fetch_enabled:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, detail="Zoeken via Yahoo is uitgeschakeld"
+        )
+    if len(q.strip()) < 2:
+        return []
+    return [SecuritySearchHit(**hit) for hit in search_symbols(q.strip())]
 
 
 @router.post("/api/securities", status_code=status.HTTP_201_CREATED, response_model=SecurityOut)
@@ -74,7 +100,7 @@ def create_security(
     body: SecurityIn,
     _user: CurrentUser,
     db: Annotated[Session, Depends(get_db)],
-) -> Security:
+) -> SecurityOut:
     _get_context(db, body.owner_context_id)
     if not body.name.strip():
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Naam is leeg")
@@ -86,7 +112,7 @@ def create_security(
     )
     db.add(security)
     db.commit()
-    return security
+    return _security_out(security)
 
 
 @router.put("/api/securities/{security_id}", response_model=SecurityOut)
@@ -95,7 +121,7 @@ def update_security(
     body: SecurityIn,
     _user: CurrentUser,
     db: Annotated[Session, Depends(get_db)],
-) -> Security:
+) -> SecurityOut:
     security = _get_security(db, security_id)
     if body.owner_context_id != security.owner_context_id:
         raise HTTPException(
@@ -105,7 +131,7 @@ def update_security(
     security.ticker = body.ticker or None
     security.isin = body.isin or None
     db.commit()
-    return security
+    return _security_out(security)
 
 
 @router.delete("/api/securities/{security_id}", status_code=status.HTTP_204_NO_CONTENT)

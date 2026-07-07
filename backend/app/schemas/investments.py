@@ -26,6 +26,14 @@ class SecurityOut(BaseModel):
     ticker: str | None
     isin: str | None
     owner_context_id: int
+    suggested_ticker: str | None = None  # afgeleid uit de naam wanneer ticker leeg is
+
+
+class SecuritySearchHit(BaseModel):
+    symbol: str
+    name: str | None
+    exchange: str | None
+    quote_type: str | None
 
 
 class SecurityTransactionIn(BaseModel):
