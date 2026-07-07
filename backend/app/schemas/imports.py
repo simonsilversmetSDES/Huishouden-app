@@ -8,7 +8,7 @@ from datetime import date
 
 from pydantic import BaseModel
 
-from app.models.enums import Bank, CategoryType
+from app.models.enums import Bank, Categorization, CategoryType
 
 
 class AccountRef(BaseModel):
@@ -44,3 +44,33 @@ class ImportPreviewOut(BaseModel):
     duplicate_count: int
     uncategorized_count: int  # nieuw, niet-intern, zonder categoriesuggestie
     skipped: list[str]
+
+
+class ImportCommitRowIn(BaseModel):
+    """Eén bevestigde rij; de categorie kan afwijken van de suggestie."""
+
+    date: date
+    effective_date: date | None = None  # None → gelijk aan date
+    amount_cents: int  # signed, zoals de preview ze teruggaf
+    type: CategoryType
+    counterparty_name: str | None = None
+    counterparty_iban: str | None = None
+    description: str | None = None
+    import_hash: str
+    category_id: int | None = None
+    categorization: Categorization = Categorization.UNCATEGORIZED
+    is_internal_transfer: bool = False
+
+
+class ImportCommitIn(BaseModel):
+    filename: str
+    bank: Bank
+    account_id: int
+    context_id: int
+    rows: list[ImportCommitRowIn]
+
+
+class ImportResultOut(BaseModel):
+    import_id: int
+    created_count: int
+    duplicate_count: int

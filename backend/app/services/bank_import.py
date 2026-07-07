@@ -15,19 +15,42 @@ AUTOMATISCH SPAREN) wint van de interne vlag: sparen telt als budget-actual.
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.models import Account, Category, Context, Transaction
-from app.models.enums import CategoryType
-from app.schemas.imports import AccountRef, ImportPreviewOut, PreviewRowOut
-from app.services.budget import to_cents
+from app.models import Account, Category, Context, Import, Transaction
+from app.models.enums import Bank, Categorization, CategoryType, TransactionSource
+from app.schemas.imports import (
+    AccountRef,
+    ImportCommitIn,
+    ImportPreviewOut,
+    ImportResultOut,
+    PreviewRowOut,
+)
+from app.services.budget import from_cents, to_cents
 from app.services.csv_parsers import ParsedRow, normalize_iban, parse_bank_csv
 from app.services.rules import MatchCandidate, load_rules, match_rule
+from app.services.transactions import UnknownCategoryError
+
+_SOURCE_BY_BANK = {
+    Bank.KBC: TransactionSource.IMPORT_KBC,
+    Bank.FORTIS: TransactionSource.IMPORT_FORTIS,
+}
 
 
 class MultipleAccountsError(ValueError):
     """Het bestand bevat rijen van meer dan één rekening (v1: niet ondersteund)."""
+
+
+class UnknownAccountError(ValueError):
+    """De rekening bestaat niet of hoort niet bij de opgegeven context."""
+
+
+class ConcurrentImportError(ValueError):
+    """Zelfde bestand werd gelijktijdig gecommit (unique import_hash botste)."""
 
 
 def _sign_type(row: ParsedRow) -> CategoryType:
@@ -140,4 +163,79 @@ def build_preview(db: Session, filename: str, content: bytes) -> ImportPreviewOu
             if not r.duplicate and not r.is_internal_transfer and r.suggested_category_id is None
         ),
         skipped=parsed.skipped,
+    )
+
+
+def commit_import(db: Session, body: ImportCommitIn) -> ImportResultOut:
+    """Bevestigde rijen opslaan met hervalidatie en dedupe-hercheck.
+
+    Idempotent: rijen waarvan de import_hash al bestaat worden geteld als
+    duplicaat en overgeslagen — zelfde bestand twee keer committen = 0 nieuwe
+    rijen. De UNIQUE-constraint op import_hash is de backstop tegen
+    gelijktijdige commits (→ ConcurrentImportError).
+    """
+    account = db.get(Account, body.account_id)
+    if account is None or account.context_id != body.context_id:
+        raise UnknownAccountError("Onbekende rekening voor deze context")
+    categories = {
+        category.id: category
+        for category in db.scalars(select(Category).where(Category.context_id == body.context_id))
+    }
+    for row in body.rows:
+        if row.category_id is not None and row.category_id not in categories:
+            raise UnknownCategoryError("Onbekende categorie voor deze context")
+
+    known = _known_hashes(db)
+    import_row = Import(filename=body.filename, bank=body.bank, imported_at=datetime.now())
+    db.add(import_row)
+    db.flush()
+
+    created = duplicates = 0
+    for row in body.rows:
+        if row.import_hash in known:
+            duplicates += 1
+            continue
+        known.add(row.import_hash)
+        # Interne overschrijvingen blijven zonder categorie (uitgesloten van budget)
+        category = None
+        if not row.is_internal_transfer and row.category_id is not None:
+            category = categories[row.category_id]
+        if category is None:
+            categorization = Categorization.UNCATEGORIZED
+        elif row.categorization == Categorization.AUTO:
+            categorization = Categorization.AUTO
+        else:
+            categorization = Categorization.MANUAL
+        db.add(
+            Transaction(
+                context_id=body.context_id,
+                account_id=account.id,
+                category_id=category.id if category else None,
+                date=row.date,
+                effective_date=row.effective_date or row.date,
+                amount=from_cents(row.amount_cents),
+                type=category.type if category else row.type,
+                counterparty_name=row.counterparty_name,
+                counterparty_iban=row.counterparty_iban,
+                description=row.description,
+                source=_SOURCE_BY_BANK[body.bank],
+                import_id=import_row.id,
+                import_hash=row.import_hash,
+                categorization=categorization,
+                is_internal_transfer=row.is_internal_transfer,
+            )
+        )
+        created += 1
+
+    import_row.row_count = created
+    import_row.duplicate_count = duplicates
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise ConcurrentImportError(
+            "Import botste met een gelijktijdige import van hetzelfde bestand — probeer opnieuw"
+        ) from exc
+    return ImportResultOut(
+        import_id=import_row.id, created_count=created, duplicate_count=duplicates
     )
