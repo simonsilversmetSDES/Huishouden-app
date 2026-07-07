@@ -8,6 +8,7 @@ import type {
   SecurityPricePayload,
   SecuritySearchHit,
   SecuritySide,
+  SecurityTransaction,
   SecurityTransactionPayload,
 } from '../api/types'
 import DonutCard from '../components/DonutCard'
@@ -42,6 +43,7 @@ export default function Beleggingen() {
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [editing, setEditing] = useState<Security | null>(null)
+  const [viewingTx, setViewingTx] = useState<{ id: number; name: string } | null>(null)
 
   const load = useCallback(() => {
     if (contextId === null) return
@@ -105,6 +107,7 @@ export default function Beleggingen() {
             portfolio={portfolio}
             securities={securities}
             onEdit={setEditing}
+            onViewTransactions={(id, name) => setViewingTx({ id, name })}
           />
           <RealizedGains portfolio={portfolio} />
           <EntrySection
@@ -123,6 +126,15 @@ export default function Beleggingen() {
             setEditing(null)
             load()
           }}
+        />
+      )}
+
+      {viewingTx && (
+        <TransactionsModal
+          securityId={viewingTx.id}
+          name={viewingTx.name}
+          onClose={() => setViewingTx(null)}
+          onChanged={load}
         />
       )}
     </div>
@@ -186,10 +198,12 @@ function PositionsTable({
   portfolio,
   securities,
   onEdit,
+  onViewTransactions,
 }: {
   portfolio: Portfolio
   securities: Security[]
   onEdit: (security: Security) => void
+  onViewTransactions: (securityId: number, name: string) => void
 }) {
   if (portfolio.positions.length === 0) {
     return (
@@ -249,10 +263,16 @@ function PositionsTable({
               </td>
               <td className="px-3 py-2 text-right text-ink-3">{pctFmt.format(p.portfolio_pct)} %</td>
               <td className="whitespace-nowrap px-5 py-2 text-right">
+                <button
+                  onClick={() => onViewTransactions(p.security_id, p.name)}
+                  className="text-xs text-ink-3 hover:text-ink-2 hover:underline"
+                >
+                  Transacties
+                </button>
                 {byId.has(p.security_id) && (
                   <button
                     onClick={() => onEdit(byId.get(p.security_id) as Security)}
-                    className="text-xs text-ink-3 hover:text-ink-2 hover:underline"
+                    className="ml-3 text-xs text-ink-3 hover:text-ink-2 hover:underline"
                   >
                     Bewerken
                   </button>
@@ -433,6 +453,219 @@ function EditSecurityModal({
           >
             Effect verwijderen
           </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+interface TxDraft {
+  date: string
+  side: SecuritySide
+  shares: string
+  price: string
+  fee: string
+  tax: string
+}
+
+function TransactionsModal({
+  securityId,
+  name,
+  onClose,
+  onChanged,
+}: {
+  securityId: number
+  name: string
+  onClose: () => void
+  onChanged: () => void
+}) {
+  const [rows, setRows] = useState<SecurityTransaction[] | null>(null)
+  const [editingId, setEditingId] = useState<number | null>(null)
+  const [draft, setDraft] = useState<TxDraft | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  const reload = useCallback(() => {
+    api<SecurityTransaction[]>(`/api/security-transactions?security_id=${securityId}`)
+      .then(setRows)
+      .catch(() => setError('Transacties laden mislukt'))
+  }, [securityId])
+
+  useEffect(reload, [reload])
+
+  function startEdit(tx: SecurityTransaction) {
+    setEditingId(tx.id)
+    setDraft({
+      date: tx.date,
+      side: tx.side,
+      shares: dec(tx.shares),
+      price: dec(tx.price_per_share),
+      fee: dec(tx.fee),
+      tax: dec(tx.tax),
+    })
+  }
+
+  async function saveEdit(id: number) {
+    if (draft === null) return
+    const shares = normDec(draft.shares)
+    const price = normDec(draft.price)
+    if (shares === null || price === null) {
+      setError('Aantal en prijs zijn verplicht')
+      return
+    }
+    setError(null)
+    const payload: SecurityTransactionPayload = {
+      security_id: securityId,
+      date: draft.date,
+      side: draft.side,
+      shares,
+      price_per_share: price,
+      fee: normDec(draft.fee) ?? '0',
+      tax: normDec(draft.tax) ?? '0',
+    }
+    try {
+      await api(`/api/security-transactions/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      })
+      setEditingId(null)
+      setDraft(null)
+      reload()
+      onChanged()
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Opslaan mislukt')
+    }
+  }
+
+  async function remove(tx: SecurityTransaction) {
+    if (!window.confirm(`Transactie van ${formatDate(tx.date)} verwijderen?`)) return
+    try {
+      await api(`/api/security-transactions/${tx.id}`, { method: 'DELETE' })
+      reload()
+      onChanged()
+    } catch {
+      setError('Verwijderen mislukt')
+    }
+  }
+
+  const cell = 'w-full rounded border border-accent bg-page px-1.5 py-1 text-sm'
+
+  return (
+    <div
+      className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/30 p-4 pt-12"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-3xl rounded-2xl border border-edge bg-surface p-5 shadow-lg"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-baseline justify-between">
+          <h3 className="text-sm font-medium">Transacties — {name}</h3>
+          <button onClick={onClose} className="text-sm text-ink-3 hover:text-ink-2">
+            Sluiten
+          </button>
+        </div>
+        {error && <p className="mt-2 text-sm text-crit">{error}</p>}
+
+        <div className="mt-3 overflow-x-auto">
+          {rows === null ? (
+            <p className="py-8 text-center text-sm text-ink-3">Laden…</p>
+          ) : rows.length === 0 ? (
+            <p className="py-8 text-center text-sm text-ink-2">Geen transacties.</p>
+          ) : (
+            <table className="w-full min-w-[640px] text-sm tabular-nums">
+              <thead>
+                <tr className="border-b border-line text-xs text-ink-3">
+                  <th className="px-2 py-2 text-left font-medium">Datum</th>
+                  <th className="px-2 py-2 text-left font-medium">Type</th>
+                  <th className="px-2 py-2 text-right font-medium">Aantal</th>
+                  <th className="px-2 py-2 text-right font-medium">Prijs</th>
+                  <th className="px-2 py-2 text-right font-medium">Kost</th>
+                  <th className="px-2 py-2 text-right font-medium">TOB</th>
+                  <th className="px-2 py-2 text-right font-medium">Totaal</th>
+                  <th className="px-2 py-2" />
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((tx) =>
+                  editingId === tx.id && draft ? (
+                    <tr key={tx.id} className="border-b border-line">
+                      <td className="px-1 py-1">
+                        <input
+                          type="date"
+                          className={cell}
+                          value={draft.date}
+                          onChange={(e) => setDraft({ ...draft, date: e.target.value })}
+                        />
+                      </td>
+                      <td className="px-1 py-1">
+                        <select
+                          className={cell}
+                          value={draft.side}
+                          onChange={(e) =>
+                            setDraft({ ...draft, side: e.target.value as SecuritySide })
+                          }
+                        >
+                          <option value="buy">Aankoop</option>
+                          <option value="sell">Verkoop</option>
+                        </select>
+                      </td>
+                      {(['shares', 'price', 'fee', 'tax'] as const).map((field) => (
+                        <td key={field} className="px-1 py-1">
+                          <input
+                            className={`${cell} text-right`}
+                            value={draft[field]}
+                            onChange={(e) => setDraft({ ...draft, [field]: e.target.value })}
+                          />
+                        </td>
+                      ))}
+                      <td className="px-2 py-1 text-right text-ink-3">–</td>
+                      <td className="whitespace-nowrap px-2 py-1 text-right">
+                        <button
+                          onClick={() => void saveEdit(tx.id)}
+                          className="text-xs text-accent hover:underline"
+                        >
+                          Opslaan
+                        </button>
+                        <button
+                          onClick={() => {
+                            setEditingId(null)
+                            setDraft(null)
+                          }}
+                          className="ml-2 text-xs text-ink-3 hover:text-ink-2"
+                        >
+                          Annuleren
+                        </button>
+                      </td>
+                    </tr>
+                  ) : (
+                    <tr key={tx.id} className="border-b border-line last:border-b-0 hover:bg-raised/50">
+                      <td className="whitespace-nowrap px-2 py-1.5">{formatDate(tx.date)}</td>
+                      <td className="px-2 py-1.5">{tx.side === 'buy' ? 'Aankoop' : 'Verkoop'}</td>
+                      <td className="px-2 py-1.5 text-right">{dec(tx.shares)}</td>
+                      <td className="px-2 py-1.5 text-right text-ink-2">{dec(tx.price_per_share)}</td>
+                      <td className="px-2 py-1.5 text-right text-ink-2">{dec(tx.fee)}</td>
+                      <td className="px-2 py-1.5 text-right text-ink-2">{dec(tx.tax)}</td>
+                      <td className="px-2 py-1.5 text-right">{dec(tx.total)}</td>
+                      <td className="whitespace-nowrap px-2 py-1.5 text-right">
+                        <button
+                          onClick={() => startEdit(tx)}
+                          className="text-xs text-ink-3 hover:text-ink-2 hover:underline"
+                        >
+                          Bewerken
+                        </button>
+                        <button
+                          onClick={() => void remove(tx)}
+                          className="ml-2 text-xs text-ink-3 hover:text-crit hover:underline"
+                        >
+                          Verwijderen
+                        </button>
+                      </td>
+                    </tr>
+                  ),
+                )}
+              </tbody>
+            </table>
+          )}
         </div>
       </div>
     </div>
