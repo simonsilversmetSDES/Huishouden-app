@@ -78,6 +78,80 @@ export interface CategoryPayload {
   type: CategoryType
 }
 
+// Rekeningstatus (spec §6). Bedragen signed integer-centen.
+export type AccountType = 'zicht' | 'spaar' | 'belegging' | 'andere'
+
+export interface Account {
+  id: number
+  name: string
+  type: AccountType
+}
+
+export interface AccountBalance {
+  account_id: number
+  balance_cents: number
+}
+
+export interface AccountStatusRow {
+  snapshot_date: string // ISO, 1e van de maand
+  balances: AccountBalance[]
+  total_cents: number
+  change_cents: number | null
+  change_pct: number | null
+}
+
+export interface AccountStatus {
+  context_id: number
+  accounts: Account[]
+  rows: AccountStatusRow[]
+  missing_current_month: boolean
+  missing_account_ids: number[]
+}
+
+export interface AccountSnapshotPayload {
+  account_id: number
+  snapshot_date: string
+  balance_cents: number
+}
+
+// Vermogensbalans (spec §9).
+export type AssetClass =
+  | 'contant'
+  | 'etf_fondsen'
+  | 'pensioensparen'
+  | 'groepsverzekering'
+  | 'woning'
+  | 'aandelen'
+
+export interface AssetValue {
+  asset_class: AssetClass
+  value_cents: number
+}
+
+export interface NetWorthRow {
+  snapshot_date: string
+  assets: AssetValue[]
+  total_cents: number
+  change_cents: number | null
+  change_pct: number | null
+}
+
+export interface NetWorth {
+  context_id: number
+  rows: NetWorthRow[]
+  latest_date: string | null
+  latest_total_cents: number
+  latest_change_cents: number | null
+  latest_breakdown: AssetValue[]
+}
+
+export interface NetWorthPayload {
+  context_id: number
+  snapshot_date: string
+  asset_class: AssetClass
+  value_cents: number
+}
+
 export interface Transaction {
   id: number
   context_id: number

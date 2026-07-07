@@ -34,6 +34,9 @@ export default function AppShell() {
             <NavLink to="/budget" className={navLinkClass}>
               Budget
             </NavLink>
+            <NavLink to="/vermogen" className={navLinkClass}>
+              Vermogen
+            </NavLink>
           </nav>
           <div className="ml-auto flex items-center gap-2 sm:gap-3">
             <select

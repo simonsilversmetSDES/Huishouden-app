@@ -8,6 +8,7 @@ import Import from './pages/Import'
 import Login from './pages/Login'
 import Rules from './pages/Rules'
 import Transactions from './pages/Transactions'
+import Vermogen from './pages/Vermogen'
 import { AppStateProvider } from './state/AppState'
 
 function RequireAuth({ children }: { children: ReactNode }) {
@@ -47,6 +48,7 @@ export default function App() {
             <Route path="/import" element={<Import />} />
             <Route path="/regels" element={<Rules />} />
             <Route path="/budget" element={<Budget />} />
+            <Route path="/vermogen" element={<Vermogen />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
