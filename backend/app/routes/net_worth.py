@@ -6,7 +6,7 @@ reeks (evolutie + laatste maand voor de donut) via build_net_worth.
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -20,7 +20,7 @@ from app.schemas.snapshots import (
     NetWorthSummaryOut,
 )
 from app.services.budget import from_cents
-from app.services.net_worth import build_net_worth
+from app.services.net_worth import build_net_worth, build_net_worth_combined
 
 router = APIRouter(prefix="/api/net-worth", tags=["net-worth"])
 
@@ -40,6 +40,19 @@ def net_worth(
 ) -> NetWorthOut:
     context = _get_context(db, context_id)
     return build_net_worth(db, context)
+
+
+@router.get("/combined", response_model=NetWorthOut)
+def net_worth_combined(
+    _user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+    context_ids: Annotated[list[int], Query()],
+) -> NetWorthOut:
+    """Nettowaarde van meerdere entiteiten opgeteld (bv. Simon + Jozefien + Gemeenschappelijk)."""
+    contexts = list(db.scalars(select(Context).where(Context.id.in_(context_ids))).all())
+    if not contexts:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Geen geldige contexts")
+    return build_net_worth_combined(db, contexts)
 
 
 @router.get("/summary", response_model=NetWorthSummaryOut)

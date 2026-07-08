@@ -116,10 +116,14 @@ def build_net_worth(db: Session, context: Context, today: date | None = None) ->
         )
         prev_total = total
 
+    return _to_out(context.id, rows)
+
+
+def _to_out(context_id: int, rows: list[NetWorthRow]) -> NetWorthOut:
     if rows:
         latest = rows[-1]
         return NetWorthOut(
-            context_id=context.id,
+            context_id=context_id,
             rows=rows,
             latest_date=latest.snapshot_date,
             latest_total_cents=latest.total_cents,
@@ -127,10 +131,47 @@ def build_net_worth(db: Session, context: Context, today: date | None = None) ->
             latest_breakdown=latest.assets,
         )
     return NetWorthOut(
-        context_id=context.id,
+        context_id=context_id,
         rows=[],
         latest_date=None,
         latest_total_cents=0,
         latest_change_cents=None,
         latest_breakdown=[],
     )
+
+
+def build_net_worth_combined(
+    db: Session, contexts: list[Context], today: date | None = None
+) -> NetWorthOut:
+    """Nettowaarde van meerdere entiteiten opgeteld (spec §9): per maand de som van de
+    activaklasse-waarden over alle contexts. `context_id` in het resultaat is 0 (gecombineerd)."""
+    per_month: dict[date, dict[AssetClass, int]] = {}
+    for context in contexts:
+        for row in build_net_worth(db, context, today).rows:
+            month = per_month.setdefault(row.snapshot_date, {})
+            for asset in row.assets:
+                month[asset.asset_class] = month.get(asset.asset_class, 0) + asset.value_cents
+
+    rows: list[NetWorthRow] = []
+    prev_total: int | None = None
+    for snapshot_date in sorted(per_month):
+        assets = per_month[snapshot_date]
+        total = sum(assets.values())
+        change_cents: int | None = None
+        change_pct: float | None = None
+        if prev_total is not None:
+            change_cents = total - prev_total
+            if prev_total != 0:
+                change_pct = change_cents / prev_total * 100
+        rows.append(
+            NetWorthRow(
+                snapshot_date=snapshot_date,
+                assets=[AssetValue(asset_class=ac, value_cents=v) for ac, v in assets.items()],
+                total_cents=total,
+                change_cents=change_cents,
+                change_pct=change_pct,
+            )
+        )
+        prev_total = total
+
+    return _to_out(0, rows)

@@ -22,7 +22,7 @@ from app.models import (
     SecurityTransaction,
 )
 from app.models.enums import AccountType, AssetClass, Bank, SecurityKind, SecuritySide
-from app.services.net_worth import build_net_worth
+from app.services.net_worth import build_net_worth, build_net_worth_combined
 
 
 def _context(db: Session, name: str = "Gemeenschappelijk") -> Context:
@@ -218,6 +218,41 @@ class TestSummary:
         assert by_name["Gemeenschappelijk"] == 100000
         assert by_name["Simon"] == 250000
         assert out["total_cents"] == 350000
+
+
+class TestGecombineerd:
+    def test_optellen_per_maand_en_klasse(self, seeded_db: Session) -> None:
+        gem = _context(seeded_db, "Gemeenschappelijk")
+        simon = _context(seeded_db, "Simon")
+        _nw(seeded_db, gem, date(2026, 5, 1), AssetClass.CONTANT, "800.00")
+        _nw(seeded_db, gem, date(2026, 6, 1), AssetClass.CONTANT, "1000.00")
+        _nw(seeded_db, simon, date(2026, 6, 1), AssetClass.CONTANT, "500.00")
+        _nw(seeded_db, simon, date(2026, 6, 1), AssetClass.AANDELEN, "2500.00")
+        seeded_db.commit()
+
+        out = build_net_worth_combined(seeded_db, [gem, simon], today=date(2026, 6, 1))
+        by_month = {
+            r.snapshot_date: {a.asset_class: a.value_cents for a in r.assets} for r in out.rows
+        }
+        assert by_month[date(2026, 5, 1)][AssetClass.CONTANT] == 80000  # enkel gem
+        assert by_month[date(2026, 6, 1)][AssetClass.CONTANT] == 150000  # 1000 + 500
+        assert by_month[date(2026, 6, 1)][AssetClass.AANDELEN] == 250000
+        assert out.latest_total_cents == 400000  # 1500 + 2500
+        assert out.rows[-1].change_cents == 320000  # 4000 − 800
+        assert out.context_id == 0
+
+    def test_route(self, logged_in: TestClient, seeded_db: Session) -> None:
+        gem = _context(seeded_db, "Gemeenschappelijk")
+        simon = _context(seeded_db, "Simon")
+        _nw(seeded_db, gem, date(2026, 6, 1), AssetClass.CONTANT, "1000.00")
+        _nw(seeded_db, simon, date(2026, 6, 1), AssetClass.AANDELEN, "2500.00")
+        seeded_db.commit()
+
+        resp = logged_in.get(
+            "/api/net-worth/combined", params={"context_ids": [gem.id, simon.id]}
+        )
+        assert resp.status_code == 200
+        assert resp.json()["latest_total_cents"] == 350000
 
 
 class TestNetWorthRoutes:
