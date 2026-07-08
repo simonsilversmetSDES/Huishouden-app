@@ -404,6 +404,7 @@ export interface Rule {
   category_id: number
   category_name: string | null
   created_from_correction: boolean
+  context_ids: number[] // entiteiten waarop de regel geldt (#9)
 }
 
 export interface RulePayload {
@@ -414,6 +415,7 @@ export interface RulePayload {
   category_id: number
   priority: number
   created_from_correction?: boolean
+  context_ids?: number[] // leeg/weg = enkel de eigenaar-context (#9)
 }
 
 export interface RuleApplyResult {

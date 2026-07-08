@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { api, ApiError } from '../api/client'
 import type {
   Category,
+  Context,
   MatchField,
   MatchType,
   Rule,
@@ -16,7 +17,7 @@ const inputClass =
   'w-full rounded-lg border border-edge bg-page px-3 py-2 text-sm focus:border-accent focus:outline-none'
 
 export default function Rules() {
-  const { contextId } = useAppState()
+  const { contextId, contexts } = useAppState()
   const [rules, setRules] = useState<Rule[] | null>(null)
   const [categories, setCategories] = useState<Category[]>([])
   const [editing, setEditing] = useState<Rule | null>(null)
@@ -100,6 +101,7 @@ export default function Rules() {
       <RuleForm
         ref={formRef}
         contextId={contextId}
+        contexts={contexts}
         categories={categories}
         editing={editing}
         onCancelEdit={() => setEditing(null)}
@@ -127,7 +129,7 @@ export default function Rules() {
               Nog geen regels voor deze context.
             </p>
           ) : (
-            <RuleTable rules={rules} onEdit={startEdit} onDelete={remove} />
+            <RuleTable rules={rules} contexts={contexts} onEdit={startEdit} onDelete={remove} />
           )}
         </section>
       )}
@@ -138,6 +140,7 @@ export default function Rules() {
 function RuleForm({
   ref,
   contextId,
+  contexts,
   categories,
   editing,
   onCancelEdit,
@@ -145,6 +148,7 @@ function RuleForm({
 }: {
   ref: React.RefObject<HTMLElement | null>
   contextId: number
+  contexts: Context[]
   categories: Category[]
   editing: Rule | null
   onCancelEdit: () => void
@@ -155,10 +159,16 @@ function RuleForm({
   const [matchValue, setMatchValue] = useState('')
   const [categoryId, setCategoryId] = useState<number | ''>('')
   const [priority, setPriority] = useState('100')
+  const [contextIds, setContextIds] = useState<number[]>([])
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
 
   useEffect(() => setCategoryId(''), [contextId])
+
+  // Nieuwe regel: standaard alle entiteiten aangevinkt (#9).
+  useEffect(() => {
+    if (editing === null) setContextIds(contexts.map((c) => c.id))
+  }, [contexts, editing])
 
   useEffect(() => {
     if (editing === null) return
@@ -167,8 +177,19 @@ function RuleForm({
     setMatchValue(editing.match_value)
     setCategoryId(editing.category_id)
     setPriority(String(editing.priority))
+    setContextIds(editing.context_ids)
     setSaveError(null)
   }, [editing])
+
+  function toggleCtx(id: number) {
+    setContextIds((prev) =>
+      prev.includes(id)
+        ? prev.length === 1
+          ? prev
+          : prev.filter((x) => x !== id)
+        : [...prev, id],
+    )
+  }
 
   async function submit(e: FormEvent) {
     e.preventDefault()
@@ -186,6 +207,7 @@ function RuleForm({
       category_id: categoryId,
       priority: Number(priority) || 0,
       created_from_correction: editing?.created_from_correction ?? false,
+      context_ids: contextIds,
     }
     try {
       if (editing) {
@@ -278,6 +300,24 @@ function RuleForm({
             className={`${inputClass} text-right tabular-nums`}
           />
         </label>
+        {contexts.length > 1 && (
+          <div className="sm:col-span-2 lg:col-span-6">
+            <span className="mb-1 block text-xs uppercase tracking-wide text-ink-3">Geldt voor</span>
+            <div className="flex flex-wrap gap-4">
+              {contexts.map((c) => (
+                <label key={c.id} className="flex items-center gap-1.5 text-sm text-ink-2">
+                  <input
+                    type="checkbox"
+                    checked={contextIds.includes(c.id)}
+                    onChange={() => toggleCtx(c.id)}
+                    className="size-4 accent-accent"
+                  />
+                  {c.name}
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
         <div className="flex items-center gap-3 sm:col-span-2 lg:col-span-6">
           <button
             type="submit"
@@ -307,13 +347,17 @@ function RuleForm({
 
 function RuleTable({
   rules,
+  contexts,
   onEdit,
   onDelete,
 }: {
   rules: Rule[]
+  contexts: Context[]
   onEdit: (rule: Rule) => void
   onDelete: (rule: Rule) => void
 }) {
+  const nameById = new Map(contexts.map((c) => [c.id, c.name]))
+  const showEntities = contexts.length > 1
   return (
     <table className="w-full min-w-[720px] text-sm">
       <thead>
@@ -323,6 +367,7 @@ function RuleTable({
           <th className="px-3 py-3 text-left font-medium">Match</th>
           <th className="px-3 py-3 text-left font-medium">Waarde</th>
           <th className="px-3 py-3 text-left font-medium">Categorie</th>
+          {showEntities && <th className="px-3 py-3 text-left font-medium">Geldt voor</th>}
           <th className="px-5 py-3" />
         </tr>
       </thead>
@@ -341,6 +386,20 @@ function RuleTable({
                 </span>
               )}
             </td>
+            {showEntities && (
+              <td className="px-3 py-2">
+                <span className="flex flex-wrap gap-1">
+                  {rule.context_ids.map((id) => (
+                    <span
+                      key={id}
+                      className="rounded-md bg-raised px-1.5 py-0.5 text-[11px] text-ink-2"
+                    >
+                      {nameById.get(id) ?? id}
+                    </span>
+                  ))}
+                </span>
+              </td>
+            )}
             <td className="whitespace-nowrap px-5 py-2 text-right">
               <button
                 onClick={() => onEdit(rule)}
