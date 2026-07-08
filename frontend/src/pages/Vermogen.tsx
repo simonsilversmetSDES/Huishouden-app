@@ -81,10 +81,9 @@ function AccountStatusSection({ contextId }: { contextId: number }) {
   useEffect(load, [load])
 
   return (
-    <section className="space-y-4">
-      <div className="flex items-center gap-2">
-        <h2 className="text-base font-medium">Rekeningstatus</h2>
-      </div>
+    <section>
+      <details className="space-y-4">
+        <summary className="cursor-pointer text-base font-medium">Rekeningstatus</summary>
 
       {error && (
         <div className="rounded-2xl border border-edge bg-surface p-6 text-sm text-ink-2">
@@ -126,6 +125,7 @@ function AccountStatusSection({ contextId }: { contextId: number }) {
           )}
         </>
       )}
+      </details>
     </section>
   )
 }
