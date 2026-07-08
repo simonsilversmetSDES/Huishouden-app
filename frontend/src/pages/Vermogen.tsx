@@ -20,6 +20,8 @@ import type {
   NetWorth,
   NetWorthPayload,
   NetWorthRow,
+  NetWorthSummary,
+  Portfolio,
 } from '../api/types'
 import DonutCard from '../components/DonutCard'
 import { ASSET_CLASS_COLORS, ASSET_CLASS_LABEL, seriesColor } from '../lib/chartColors'
@@ -584,14 +586,106 @@ function NetWorthSection({ contextId }: { contextId: number }) {
           )}
 
           {rows.length > 0 && (
-            <div className="grid gap-4 lg:grid-cols-2">
-              <DonutCard title="Verdeling activa" rows={donutRows} maxSegments={6} />
+            <>
+              <VermogenDonuts selectedIds={selectedIds} activaRows={donutRows} />
               <NetWorthEvolution data={data} excludeWoning={excludeWoning} />
-            </div>
+            </>
           )}
         </>
       )}
     </section>
+  )
+}
+
+type SimpleRow = { name: string; cents: number; color?: string }
+
+/** De vier balansdonuts uit de Excel (spec §9): activasplit, per entiteit, beleggingen, contant.
+ * Beleggingen en contant worden per geselecteerde entiteit opgehaald en samengeteld. */
+function VermogenDonuts({
+  selectedIds,
+  activaRows,
+}: {
+  selectedIds: number[]
+  activaRows: SimpleRow[]
+}) {
+  const [summary, setSummary] = useState<NetWorthSummary | null>(null)
+  const [beleggingen, setBeleggingen] = useState<SimpleRow[]>([])
+  const [contant, setContant] = useState<SimpleRow[]>([])
+
+  useEffect(() => {
+    api<NetWorthSummary>('/api/net-worth/summary')
+      .then(setSummary)
+      .catch(() => setSummary(null))
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    // Beleggingen per positie, samengeteld over de gekozen entiteiten.
+    Promise.all(
+      selectedIds.map((id) => api<Portfolio>(`/api/portfolio?context_id=${id}`).catch(() => null)),
+    ).then((list) => {
+      if (cancelled) return
+      const merged = new Map<string, number>()
+      for (const p of list) {
+        if (!p) continue
+        for (const pos of p.positions) {
+          if (pos.value_cents === null) continue
+          merged.set(pos.name, (merged.get(pos.name) ?? 0) + pos.value_cents)
+        }
+      }
+      setBeleggingen([...merged].map(([name, cents]) => ({ name, cents })))
+    })
+    // Contant per rekening (recentste maand), zonder pensioensparen/groepsverzekering.
+    Promise.all(
+      selectedIds.map((id) =>
+        api<AccountStatus>(`/api/account-snapshots?context_id=${id}`).catch(() => null),
+      ),
+    ).then((list) => {
+      if (cancelled) return
+      const merged = new Map<string, number>()
+      for (const status of list) {
+        if (!status) continue
+        const typeById = new Map(status.accounts.map((a) => [a.id, a.type]))
+        const nameById = new Map(status.accounts.map((a) => [a.id, a.name]))
+        const latest = status.rows.at(-1)
+        if (!latest) continue
+        for (const b of latest.balances) {
+          const type = typeById.get(b.account_id)
+          if (type === 'pensioensparen' || type === 'groepsverzekering') continue
+          const name = nameById.get(b.account_id) ?? '?'
+          merged.set(name, (merged.get(name) ?? 0) + b.balance_cents)
+        }
+      }
+      setContant([...merged].map(([name, cents]) => ({ name, cents })))
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [selectedIds])
+
+  const entityRows = (summary?.contexts ?? []).map((c) => ({ name: c.name, cents: c.total_cents }))
+  const householdTotal = summary?.total_cents ?? 0
+  const selectedTotal = (summary?.contexts ?? [])
+    .filter((c) => selectedIds.includes(c.context_id))
+    .reduce((sum, c) => sum + c.total_cents, 0)
+  const sharePct =
+    householdTotal > 0
+      ? `selectie = ${pctFmt.format((selectedTotal / householdTotal) * 100)} % van het gezin`
+      : undefined
+
+  return (
+    <div className="grid gap-4 lg:grid-cols-2">
+      <DonutCard title="Balansoverzicht" rows={activaRows} maxSegments={7} />
+      <DonutCard
+        title="Balans per entiteit"
+        subtitle={sharePct}
+        rows={entityRows}
+        kind="saving"
+        maxSegments={4}
+      />
+      <DonutCard title="Balans beleggingen" rows={beleggingen} kind="saving" maxSegments={6} />
+      <DonutCard title="Balans contant geld" rows={contant} kind="saving" maxSegments={6} />
+    </div>
   )
 }
 

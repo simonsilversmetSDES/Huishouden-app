@@ -23,9 +23,17 @@ interface DonutCardProps {
   kind?: keyof typeof RAMPS
   /** Aantal losse segmenten voor "Overige" (default 5). */
   maxSegments?: number
+  /** Optionele bijschrift onder de titel. */
+  subtitle?: string
 }
 
-export default function DonutCard({ title, kind, rows, maxSegments = TOP_N }: DonutCardProps) {
+export default function DonutCard({
+  title,
+  kind,
+  rows,
+  maxSegments = TOP_N,
+  subtitle,
+}: DonutCardProps) {
   const [hidden, setHidden] = useState<Set<string>>(new Set())
   const sorted = rows.filter((r) => r.cents > 0).sort((a, b) => b.cents - a.cents)
   const top = sorted.slice(0, maxSegments)
@@ -51,6 +59,7 @@ export default function DonutCard({ title, kind, rows, maxSegments = TOP_N }: Do
   return (
     <div className="flex flex-col rounded-2xl border border-edge bg-surface p-5">
       <h3 className="text-sm font-medium text-ink-2">{title}</h3>
+      {subtitle && <p className="mt-0.5 text-xs text-ink-3">{subtitle}</p>}
       {segments.length === 0 ? (
         <p className="flex flex-1 items-center justify-center py-10 text-sm text-ink-3">
           Geen bedragen in deze periode
