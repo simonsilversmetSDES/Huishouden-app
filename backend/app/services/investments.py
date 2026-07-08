@@ -31,11 +31,18 @@ from app.schemas.investments import (
     PositionOut,
     RealizedGainOut,
     RealizedYearOut,
+    YearReturnOut,
 )
 from app.services.budget import to_cents
 
 ZERO = Decimal("0")
 SIX = Decimal("0.000001")
+
+# Een jaargrens-koers mag maximaal zoveel dagen ouder zijn dan de grens zelf;
+# anders valt het jaar niet betrouwbaar te waarderen (bv. enkel maandelijkse
+# manuele koersen). Ruim genoeg voor maandelijkse invoer, streng genoeg om
+# ontbrekende jaren te herkennen.
+PRICE_TOLERANCE_DAYS = 45
 
 
 def _latest_prices(db: Session, security_ids: list[int]) -> dict[int, Decimal]:
@@ -64,7 +71,7 @@ def _split_factor(splits: list[SecuritySplit], tx_date: date) -> Decimal:
     return factor
 
 
-def build_portfolio(db: Session, context: Context) -> PortfolioOut:
+def build_portfolio(db: Session, context: Context, today: date | None = None) -> PortfolioOut:
     securities = list(
         db.scalars(
             select(Security)
@@ -81,6 +88,7 @@ def build_portfolio(db: Session, context: Context) -> PortfolioOut:
         total_gain_pct=None,
         realized_gains=[],
         realized_by_year=[],
+        yearly_returns=[],
     )
     if not securities:
         return empty
@@ -194,4 +202,175 @@ def build_portfolio(db: Session, context: Context) -> PortfolioOut:
         realized_by_year=[
             RealizedYearOut(year=year, gain_cents=cents) for year, cents in sorted(by_year.items())
         ],
+        yearly_returns=yearly_returns(db, context, today),
     )
+
+
+def _split_factor_upto(splits: list[SecuritySplit], after: date, upto: date) -> Decimal:
+    """Cumulatieve split-factor voor transacties op `after`, gemeten op datum `upto`
+    (enkel splits die ná de transactie maar niet ná `upto` vielen)."""
+    factor = Decimal(1)
+    for split in splits:
+        if after < split.date <= upto:
+            factor *= split.ratio
+    return factor
+
+
+def _shares_as_of(
+    txns: list[SecurityTransaction], splits: list[SecuritySplit], on: date
+) -> Decimal:
+    """Aangehouden aantal op datum `on`, in de eenheden die op dat moment golden."""
+    shares = ZERO
+    for tx in txns:
+        if tx.date > on:
+            continue
+        signed = tx.shares if tx.side == SecuritySide.BUY else -tx.shares
+        shares += signed * _split_factor_upto(splits, tx.date, on)
+    return shares
+
+
+def _price_as_of(
+    history: list[tuple[date, Decimal]], on: date, allow_stale: bool
+) -> Decimal | None:
+    """Recentste koers op of vóór `on`. Buiten de tolerantie (en niet `allow_stale`)
+    → None, zodat een jaar zonder bruikbare grens-koers als onvolledig geldt."""
+    best: tuple[date, Decimal] | None = None
+    for point in history:  # oplopend gesorteerd
+        if point[0] <= on:
+            best = point
+        else:
+            break
+    if best is None:
+        return None
+    if not allow_stale and (on - best[0]).days > PRICE_TOLERANCE_DAYS:
+        return None
+    return best[1]
+
+
+def _value_as_of(
+    on: date,
+    securities: list[Security],
+    by_security: dict[int, list[SecurityTransaction]],
+    splits_by_security: dict[int, list[SecuritySplit]],
+    prices_by_security: dict[int, list[tuple[date, Decimal]]],
+    allow_stale: bool,
+) -> tuple[Decimal, bool]:
+    """Portefeuillewaarde op datum `on` en of ze volledig te bepalen viel
+    (True als elke aangehouden positie een koers binnen de tolerantie had)."""
+    total = ZERO
+    complete = True
+    for security in securities:
+        shares = _shares_as_of(
+            by_security.get(security.id, []), splits_by_security.get(security.id, []), on
+        )
+        if shares == ZERO:
+            continue
+        price = _price_as_of(prices_by_security.get(security.id, []), on, allow_stale)
+        if price is None:
+            complete = False
+            continue
+        total += price * shares
+    return total, complete
+
+
+def yearly_returns(
+    db: Session, context: Context, today: date | None = None
+) -> list[YearReturnOut]:
+    """Rendement per kalenderjaar via Modified Dietz (spec §7).
+
+    Per jaar: (Weinde − Wstart − netto_instroom) / (Wstart + Σ instroom×(T−t)/T),
+    waarbij instroom = aankoop-totalen (+) en verkoop-opbrengsten (−), dag-gewogen
+    over het jaar. Jaargrens-waarden worden gereconstrueerd uit de transacties en de
+    koershistoriek; ontbreekt een grens-koers, dan blijft het rendement leeg
+    (`complete=False`) i.p.v. een misleidend cijfer te tonen.
+    """
+    if today is None:
+        today = date.today()
+
+    securities = list(
+        db.scalars(select(Security).where(Security.owner_context_id == context.id))
+    )
+    if not securities:
+        return []
+    security_ids = [s.id for s in securities]
+
+    by_security: dict[int, list[SecurityTransaction]] = defaultdict(list)
+    for tx in db.scalars(
+        select(SecurityTransaction)
+        .where(SecurityTransaction.security_id.in_(security_ids))
+        .order_by(SecurityTransaction.date, SecurityTransaction.id)
+    ):
+        by_security[tx.security_id].append(tx)
+    if not any(by_security.values()):
+        return []
+
+    splits_by_security: dict[int, list[SecuritySplit]] = defaultdict(list)
+    for split in db.scalars(
+        select(SecuritySplit).where(SecuritySplit.security_id.in_(security_ids))
+    ):
+        splits_by_security[split.security_id].append(split)
+
+    prices_by_security: dict[int, list[tuple[date, Decimal]]] = defaultdict(list)
+    for price in db.scalars(
+        select(SecurityPrice)
+        .where(SecurityPrice.security_id.in_(security_ids))
+        .order_by(SecurityPrice.date)
+    ):
+        prices_by_security[price.security_id].append((price.date, price.price))
+
+    first_year = min(tx.date.year for txns in by_security.values() for tx in txns)
+
+    results: list[YearReturnOut] = []
+    for year in range(first_year, today.year + 1):
+        period_start = date(year, 1, 1)
+        is_current = year == today.year
+        period_end = today if is_current else date(year, 12, 31)
+
+        start_value, start_complete = _value_as_of(
+            date(year - 1, 12, 31),
+            securities,
+            by_security,
+            splits_by_security,
+            prices_by_security,
+            allow_stale=False,
+        )
+        end_value, end_complete = _value_as_of(
+            period_end,
+            securities,
+            by_security,
+            splits_by_security,
+            prices_by_security,
+            allow_stale=is_current,  # lopend jaar volgt de laatst gekende koers
+        )
+
+        days = (period_end - period_start).days
+        net_flow = ZERO
+        weighted_flow = ZERO
+        for security in securities:
+            for tx in by_security.get(security.id, []):
+                if tx.date.year != year:
+                    continue
+                signed = tx.total if tx.side == SecuritySide.BUY else -tx.total
+                net_flow += signed
+                if days > 0:
+                    elapsed = (tx.date - period_start).days
+                    weighted_flow += signed * Decimal(days - elapsed) / Decimal(days)
+
+        avg_capital = start_value + weighted_flow
+        complete = start_complete and end_complete and avg_capital != ZERO
+        return_pct = (
+            float((end_value - start_value - net_flow) / avg_capital * 100)
+            if complete
+            else None
+        )
+        results.append(
+            YearReturnOut(
+                year=year,
+                return_pct=return_pct,
+                start_value_cents=to_cents(start_value),
+                end_value_cents=to_cents(end_value),
+                net_flow_cents=to_cents(net_flow),
+                complete=complete,
+            )
+        )
+    return results

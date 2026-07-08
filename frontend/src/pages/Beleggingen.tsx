@@ -13,6 +13,7 @@ import type {
   SecuritySplitPayload,
   SecurityTransaction,
   SecurityTransactionPayload,
+  YearReturn,
 } from '../api/types'
 import DonutCard from '../components/DonutCard'
 import { formatCents, formatCentsPlain, formatDate } from '../lib/format'
@@ -172,6 +173,7 @@ export default function Beleggingen() {
             gainPct={totalGainPct}
             donutRows={donutRows}
           />
+          <YearlyReturns years={portfolio.yearly_returns} />
           <PositionsTable
             portfolio={portfolio}
             securities={securities}
@@ -241,6 +243,50 @@ function Overview({
         />
       </div>
       <DonutCard title="Verdeling portefeuille" kind="saving" rows={donutRows} />
+    </section>
+  )
+}
+
+function YearlyReturns({ years }: { years: YearReturn[] }) {
+  if (years.length === 0) return null
+  const anyComplete = years.some((y) => y.return_pct !== null)
+  return (
+    <section className="space-y-3">
+      <div className="flex flex-wrap items-baseline gap-x-3">
+        <h2 className="text-base font-medium">Rendement per jaar</h2>
+        <span className="text-xs text-ink-3">
+          per kalenderjaar, rekening houdend met stortingen (Modified Dietz)
+        </span>
+      </div>
+      {!anyComplete ? (
+        <p className="rounded-2xl border border-dashed border-edge bg-surface px-4 py-3 text-sm text-ink-2">
+          Nog geen historische koersen beschikbaar. Het rendement per jaar verschijnt
+          zodra er per jaargrens (eind december) een koers gekend is — die bouwt vanzelf
+          op naarmate de koersen dagelijks worden bijgehouden.
+        </p>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          {years.map((y) => (
+            <div
+              key={y.year}
+              className="rounded-2xl border border-edge bg-surface px-4 py-3 text-sm"
+              title={
+                y.complete ? undefined : 'Onvoldoende historische koersen om dit jaar te waarderen'
+              }
+            >
+              <span className="text-ink-3">{y.year}: </span>
+              {y.return_pct === null ? (
+                <span className="text-ink-3">onvolledig</span>
+              ) : (
+                <span className={`font-medium ${y.return_pct < 0 ? 'text-crit' : 'text-good'}`}>
+                  {y.return_pct > 0 ? '+' : ''}
+                  {pctFmt.format(y.return_pct)} %
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </section>
   )
 }

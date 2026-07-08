@@ -123,6 +123,17 @@ class RealizedYearOut(BaseModel):
     gain_cents: int
 
 
+class YearReturnOut(BaseModel):
+    """Rendement over één kalenderjaar (Modified Dietz)."""
+
+    year: int
+    return_pct: float | None  # None = onvoldoende koersdata om het jaar te waarderen
+    start_value_cents: int  # portefeuillewaarde begin van het jaar
+    end_value_cents: int  # waarde einde jaar (of huidige waarde voor het lopende jaar)
+    net_flow_cents: int  # netto in-/uitstroom: + = bijgestort, − = onttrokken
+    complete: bool  # False → return_pct is None wegens ontbrekende jaargrens-koers
+
+
 class PortfolioOut(BaseModel):
     context_id: int
     positions: list[PositionOut]
@@ -132,3 +143,4 @@ class PortfolioOut(BaseModel):
     total_gain_pct: float | None
     realized_gains: list[RealizedGainOut]
     realized_by_year: list[RealizedYearOut]
+    yearly_returns: list[YearReturnOut]

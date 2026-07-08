@@ -273,6 +273,15 @@ export interface RealizedYear {
   gain_cents: number
 }
 
+export interface YearReturn {
+  year: number
+  return_pct: number | null // null = onvoldoende koersdata voor dat jaar
+  start_value_cents: number
+  end_value_cents: number
+  net_flow_cents: number
+  complete: boolean
+}
+
 export interface Portfolio {
   context_id: number
   positions: Position[]
@@ -282,6 +291,7 @@ export interface Portfolio {
   total_gain_pct: number | null
   realized_gains: RealizedGain[]
   realized_by_year: RealizedYear[]
+  yearly_returns: YearReturn[]
 }
 
 export interface SecurityPricePayload {
