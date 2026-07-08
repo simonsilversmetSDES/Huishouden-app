@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type KeyboardEvent } from 'react'
+import { useCallback, useEffect, useState, type DragEvent, type KeyboardEvent } from 'react'
 import { api, ApiError } from '../api/client'
 import type { BudgetCellUpdate, BudgetMatrix, Category, CategoryPayload, CategoryType } from '../api/types'
 import { formatCentsPlain, MAAND_KORT, parseEuroToCents } from '../lib/format'
@@ -124,7 +124,7 @@ export default function Budget() {
 
       <p className="text-xs text-ink-3">
         Klik een cel om te bewerken · Enter = opslaan · Esc = annuleren · Ctrl+Enter = waarde
-        doortrekken t/m december
+        doortrekken t/m december · sleep een bedrag naar een andere cel om het te verplaatsen
       </p>
     </div>
   )
@@ -351,6 +351,32 @@ function EditableCell({
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
   const [invalid, setInvalid] = useState(false)
+  const [dragOver, setDragOver] = useState(false)
+
+  // Verslepen: bedrag verhuist van bron- naar doelcel (bron wordt leeg, doel overschreven).
+  async function onDrop(e: DragEvent<HTMLTableCellElement>) {
+    e.preventDefault()
+    setDragOver(false)
+    const raw = e.dataTransfer.getData('application/x-budget-cell')
+    if (!raw) return
+    let src: { categoryId: number; month: number; cents: number }
+    try {
+      src = JSON.parse(raw)
+    } catch {
+      return
+    }
+    if (src.cents === 0) return
+    if (src.categoryId === categoryId && src.month === month) return // zelfde cel
+    setBusy(true)
+    try {
+      await onSave([
+        { category_id: categoryId, year, month, amount_cents: src.cents },
+        { category_id: src.categoryId, year, month: src.month, amount_cents: 0 },
+      ])
+    } finally {
+      setBusy(false)
+    }
+  }
 
   function start() {
     setText(cents !== 0 ? formatCentsPlain(cents) : '')
@@ -400,10 +426,31 @@ function EditableCell({
 
   if (!editing) {
     return (
-      <td className="p-0 text-right">
+      <td
+        className={`p-0 text-right transition-colors ${
+          dragOver ? 'bg-accent/15 ring-1 ring-inset ring-accent' : ''
+        }`}
+        onDragOver={(e) => {
+          e.preventDefault()
+          e.dataTransfer.dropEffect = 'move'
+          setDragOver(true)
+        }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={(e) => void onDrop(e)}
+      >
         <button
           onClick={start}
-          className="block w-full rounded px-2 py-1 text-right hover:bg-raised focus:outline-none focus-visible:ring-1 focus-visible:ring-accent"
+          draggable={cents !== 0}
+          onDragStart={(e) => {
+            e.dataTransfer.effectAllowed = 'move'
+            e.dataTransfer.setData(
+              'application/x-budget-cell',
+              JSON.stringify({ categoryId, month, cents }),
+            )
+          }}
+          className={`block w-full rounded px-2 py-1 text-right hover:bg-raised focus:outline-none focus-visible:ring-1 focus-visible:ring-accent ${
+            cents !== 0 ? 'cursor-grab active:cursor-grabbing' : ''
+          } ${busy ? 'opacity-50' : ''}`}
         >
           {cents !== 0 ? formatCentsPlain(cents) : <span className="text-ink-3">·</span>}
         </button>
