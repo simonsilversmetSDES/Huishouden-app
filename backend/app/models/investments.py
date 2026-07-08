@@ -5,7 +5,7 @@ from sqlalchemy import Date, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
-from app.models.enums import SecuritySide, str_enum
+from app.models.enums import SecurityKind, SecuritySide, str_enum
 from app.types import PreciseDecimal
 
 
@@ -18,6 +18,10 @@ class Security(Base):
     isin: Mapped[str | None] = mapped_column(String)
     currency: Mapped[str] = mapped_column(String, default="EUR")
     owner_context_id: Mapped[int] = mapped_column(ForeignKey("contexts.id"))
+    # Soort belegging → voedt de juiste activaklasse in de vermogensbalans (spec §9).
+    soort: Mapped[SecurityKind] = mapped_column(
+        str_enum(SecurityKind, "security_kind"), default=SecurityKind.ETF_FONDSEN
+    )
 
 
 class SecurityTransaction(Base):

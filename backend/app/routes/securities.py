@@ -35,6 +35,7 @@ def _security_out(security: Security) -> SecurityOut:
         ticker=security.ticker,
         isin=security.isin,
         owner_context_id=security.owner_context_id,
+        soort=security.soort,
         suggested_ticker=suggest_ticker(security.name) if not security.ticker else None,
     )
 
@@ -112,6 +113,7 @@ def create_security(
         ticker=(body.ticker or None),
         isin=(body.isin or None),
         owner_context_id=body.owner_context_id,
+        soort=body.soort,
     )
     db.add(security)
     db.commit()
@@ -133,6 +135,7 @@ def update_security(
     security.name = body.name.strip()
     security.ticker = body.ticker or None
     security.isin = body.isin or None
+    security.soort = body.soort
     db.commit()
     return _security_out(security)
 

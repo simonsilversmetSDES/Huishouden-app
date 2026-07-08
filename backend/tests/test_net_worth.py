@@ -12,8 +12,16 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import Account, AccountSnapshot, Context, NetWorthSnapshot
-from app.models.enums import AccountType, AssetClass, Bank
+from app.models import (
+    Account,
+    AccountSnapshot,
+    Context,
+    NetWorthSnapshot,
+    Security,
+    SecurityPrice,
+    SecurityTransaction,
+)
+from app.models.enums import AccountType, AssetClass, Bank, SecurityKind, SecuritySide
 from app.services.net_worth import build_net_worth
 
 
@@ -27,6 +35,10 @@ def _nw(db: Session, ctx: Context, d: date, asset: AssetClass, value: str) -> No
             context_id=ctx.id, snapshot_date=d, asset_class=asset, value=Decimal(value)
         )
     )
+
+
+def _asnap(db: Session, account_id: int, d: date, amount: str) -> None:
+    db.add(AccountSnapshot(account_id=account_id, snapshot_date=d, balance=Decimal(amount)))
 
 
 class TestBuildNetWorth:
@@ -104,6 +116,93 @@ class TestContantAuto:
         out = build_net_worth(seeded_db, ctx)
         breakdown = {a.asset_class: a.value_cents for a in out.latest_breakdown}
         assert breakdown[AssetClass.CONTANT] == 50000  # geen rekeningdata → manueel blijft
+
+
+class TestRekeningKlassen:
+    def _account(self, db: Session, ctx: Context, name: str, type_: AccountType) -> Account:
+        acc = Account(context_id=ctx.id, name=name, bank=Bank.KBC, type=type_)
+        db.add(acc)
+        db.flush()
+        return acc
+
+    def test_rekening_types_naar_klasse(self, seeded_db: Session) -> None:
+        ctx = _context(seeded_db, "Simon")
+        jun = date(2026, 6, 1)
+        zicht = self._account(seeded_db, ctx, "Zicht", AccountType.ZICHT)
+        spaar = self._account(seeded_db, ctx, "Spaar", AccountType.SPAAR)
+        pensioen = self._account(seeded_db, ctx, "Pensioensparen", AccountType.PENSIOENSPAREN)
+        groeps = self._account(seeded_db, ctx, "Groepsverzekering", AccountType.GROEPSVERZEKERING)
+        _asnap(seeded_db, zicht.id, jun, "1000.00")
+        _asnap(seeded_db, spaar.id, jun, "2000.00")
+        _asnap(seeded_db, pensioen.id, jun, "500.00")
+        _asnap(seeded_db, groeps.id, jun, "3000.00")
+        seeded_db.commit()
+
+        out = build_net_worth(seeded_db, ctx, today=jun)
+        breakdown = {a.asset_class: a.value_cents for a in out.latest_breakdown}
+        assert breakdown[AssetClass.CONTANT] == 300000  # zicht + spaar
+        assert breakdown[AssetClass.PENSIOENSPAREN] == 50000
+        assert breakdown[AssetClass.GROEPSVERZEKERING] == 300000
+        assert out.latest_total_cents == 650000
+
+
+class TestBeleggingenAfleiding:
+    def _security(self, db: Session, ctx: Context, name: str, soort: SecurityKind) -> Security:
+        sec = Security(name=name, owner_context_id=ctx.id, soort=soort)
+        db.add(sec)
+        db.flush()
+        return sec
+
+    def _buy(self, db: Session, sec: Security, shares: str, price: str, total: str) -> None:
+        db.add(
+            SecurityTransaction(
+                security_id=sec.id,
+                date=date(2026, 1, 1),
+                side=SecuritySide.BUY,
+                shares=Decimal(shares),
+                price_per_share=Decimal(price),
+                fee=Decimal("0"),
+                tax=Decimal("0"),
+                total=Decimal(total),
+            )
+        )
+
+    def test_beleggingen_op_huidige_maand_per_soort(self, seeded_db: Session) -> None:
+        ctx = _context(seeded_db, "Simon")
+        etf = self._security(seeded_db, ctx, "IWDA", SecurityKind.ETF_FONDSEN)
+        aandeel = self._security(seeded_db, ctx, "Alphabet", SecurityKind.AANDELEN)
+        self._buy(seeded_db, etf, "10", "100", "1000")
+        self._buy(seeded_db, aandeel, "5", "100", "500")
+        seeded_db.add_all(
+            [
+                SecurityPrice(security_id=etf.id, date=date(2026, 6, 1), price=Decimal("150")),
+                SecurityPrice(security_id=aandeel.id, date=date(2026, 6, 1), price=Decimal("200")),
+            ]
+        )
+        seeded_db.commit()
+
+        out = build_net_worth(seeded_db, ctx, today=date(2026, 7, 8))
+        assert out.latest_date == date(2026, 7, 1)  # huidige maand automatisch aangemaakt
+        breakdown = {a.asset_class: a.value_cents for a in out.latest_breakdown}
+        assert breakdown[AssetClass.ETF_FONDSEN] == 150000  # 10 × 150
+        assert breakdown[AssetClass.AANDELEN] == 100000  # 5 × 200
+
+    def test_oudere_maand_manueel_blijft(self, seeded_db: Session) -> None:
+        ctx = _context(seeded_db, "Jozefien")
+        _nw(seeded_db, ctx, date(2026, 3, 1), AssetClass.ETF_FONDSEN, "1000.00")  # oude manuele
+        etf = self._security(seeded_db, ctx, "IWDA", SecurityKind.ETF_FONDSEN)
+        self._buy(seeded_db, etf, "10", "100", "1000")
+        seeded_db.add(
+            SecurityPrice(security_id=etf.id, date=date(2026, 6, 1), price=Decimal("150"))
+        )
+        seeded_db.commit()
+
+        out = build_net_worth(seeded_db, ctx, today=date(2026, 7, 8))
+        by_month = {
+            r.snapshot_date: {a.asset_class: a.value_cents for a in r.assets} for r in out.rows
+        }
+        assert by_month[date(2026, 3, 1)][AssetClass.ETF_FONDSEN] == 100000  # manueel ongewijzigd
+        assert by_month[date(2026, 7, 1)][AssetClass.ETF_FONDSEN] == 150000  # live huidige maand
 
 
 class TestSummary:

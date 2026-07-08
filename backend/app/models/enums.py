@@ -16,6 +16,8 @@ class AccountType(StrEnum):
     SPAAR = "spaar"
     BELEGGING = "belegging"
     ANDERE = "andere"
+    PENSIOENSPAREN = "pensioensparen"
+    GROEPSVERZEKERING = "groepsverzekering"
 
 
 class CategoryType(StrEnum):
@@ -61,6 +63,26 @@ class AssetClass(StrEnum):
     GROEPSVERZEKERING = "groepsverzekering"
     WONING = "woning"
     AANDELEN = "aandelen"
+    BITCOIN = "bitcoin"
+
+
+class SecurityKind(StrEnum):
+    """Soort belegging; de waarden vallen samen met de overeenkomstige AssetClass."""
+
+    ETF_FONDSEN = "etf_fondsen"
+    AANDELEN = "aandelen"
+    BITCOIN = "bitcoin"
+
+
+# Welke activaklasse in de vermogensbalans een rekening-type voedt (spec §6/§9).
+ACCOUNT_TYPE_ASSET_CLASS: dict[AccountType, AssetClass] = {
+    AccountType.ZICHT: AssetClass.CONTANT,
+    AccountType.SPAAR: AssetClass.CONTANT,
+    AccountType.BELEGGING: AssetClass.CONTANT,
+    AccountType.ANDERE: AssetClass.CONTANT,
+    AccountType.PENSIOENSPAREN: AssetClass.PENSIOENSPAREN,
+    AccountType.GROEPSVERZEKERING: AssetClass.GROEPSVERZEKERING,
+}
 
 
 def str_enum(enum_cls: type[StrEnum], name: str) -> SAEnum:

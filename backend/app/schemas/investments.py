@@ -10,7 +10,7 @@ from datetime import date
 
 from pydantic import BaseModel
 
-from app.models.enums import SecuritySide
+from app.models.enums import SecurityKind, SecuritySide
 
 
 class SecurityIn(BaseModel):
@@ -18,6 +18,7 @@ class SecurityIn(BaseModel):
     ticker: str | None = None
     isin: str | None = None
     owner_context_id: int
+    soort: SecurityKind = SecurityKind.ETF_FONDSEN
 
 
 class SecurityOut(BaseModel):
@@ -26,6 +27,7 @@ class SecurityOut(BaseModel):
     ticker: str | None
     isin: str | None
     owner_context_id: int
+    soort: SecurityKind
     suggested_ticker: str | None = None  # afgeleid uit de naam wanneer ticker leeg is
 
 
