@@ -29,10 +29,11 @@ import { useAppState } from '../state/AppState'
 const ASSET_CLASSES: AssetClass[] = [
   'contant',
   'etf_fondsen',
+  'aandelen',
+  'bitcoin',
   'pensioensparen',
   'groepsverzekering',
   'woning',
-  'aandelen',
 ]
 
 const inputClass =
@@ -133,6 +134,8 @@ function AccountStatusSection({ contextId }: { contextId: number }) {
 const ACCOUNT_TYPES: { value: AccountType; label: string }[] = [
   { value: 'zicht', label: 'Zichtrekening' },
   { value: 'spaar', label: 'Spaarrekening' },
+  { value: 'pensioensparen', label: 'Pensioensparen' },
+  { value: 'groepsverzekering', label: 'Groepsverzekering' },
   { value: 'belegging', label: 'Belegging' },
   { value: 'andere', label: 'Andere' },
 ]
@@ -555,19 +558,18 @@ function NetWorthForm({
   onSaved: () => void
 }) {
   const [month, setMonth] = useState(currentMonth)
-  const [assetClass, setAssetClass] = useState<AssetClass>('contant')
   const [amountText, setAmountText] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const snapshotDate = `${month}-01`
 
-  // Prefill met de bestaande waarde van (maand, activaklasse).
+  // Prefill met de bestaande woning-waarde van de gekozen maand.
   useEffect(() => {
     const row = data.rows.find((r) => r.snapshot_date === snapshotDate)
-    const asset = row?.assets.find((a) => a.asset_class === assetClass)
+    const asset = row?.assets.find((a) => a.asset_class === 'woning')
     setAmountText(asset ? formatCentsPlain(asset.value_cents) : '')
-  }, [snapshotDate, assetClass, data])
+  }, [snapshotDate, data])
 
   async function submit(e: FormEvent) {
     e.preventDefault()
@@ -581,7 +583,7 @@ function NetWorthForm({
     const payload: NetWorthPayload = {
       context_id: contextId,
       snapshot_date: snapshotDate,
-      asset_class: assetClass,
+      asset_class: 'woning',
       value_cents: cents,
     }
     try {
@@ -596,8 +598,12 @@ function NetWorthForm({
 
   return (
     <form onSubmit={submit} className="rounded-2xl border border-edge bg-surface p-5">
-      <h3 className="text-sm font-medium">Activaklasse invoeren of bijwerken</h3>
-      <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <h3 className="text-sm font-medium">Woning-waarde invoeren of bijwerken</h3>
+      <p className="mt-1 text-xs text-ink-3">
+        De overige activaklassen worden automatisch afgeleid uit de rekeningstatus (contant,
+        pensioensparen, groepsverzekering) en de beleggingen (fondsen/ETF, aandelen, bitcoin).
+      </p>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <label className="block">
           <span className="mb-1 block text-xs uppercase tracking-wide text-ink-3">Maand</span>
           <input
@@ -608,21 +614,9 @@ function NetWorthForm({
           />
         </label>
         <label className="block">
-          <span className="mb-1 block text-xs uppercase tracking-wide text-ink-3">Activaklasse</span>
-          <select
-            value={assetClass}
-            onChange={(e) => setAssetClass(e.target.value as AssetClass)}
-            className={inputClass}
-          >
-            {ASSET_CLASSES.map((ac) => (
-              <option key={ac} value={ac}>
-                {ASSET_CLASS_LABEL[ac]}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="block">
-          <span className="mb-1 block text-xs uppercase tracking-wide text-ink-3">Waarde</span>
+          <span className="mb-1 block text-xs uppercase tracking-wide text-ink-3">
+            Waarde woning
+          </span>
           <input
             type="text"
             inputMode="decimal"

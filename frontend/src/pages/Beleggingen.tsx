@@ -4,6 +4,7 @@ import type {
   Portfolio,
   PriceFetchResult,
   Security,
+  SecurityKind,
   SecurityPayload,
   SecurityPricePayload,
   SecuritySearchHit,
@@ -19,6 +20,13 @@ import { useAppState } from '../state/AppState'
 
 const inputClass =
   'w-full rounded-lg border border-edge bg-page px-3 py-2 text-sm focus:border-accent focus:outline-none'
+
+// Soort belegging → bepaalt de activaklasse in de vermogensbalans (spec §9).
+const SECURITY_KINDS: { value: SecurityKind; label: string }[] = [
+  { value: 'etf_fondsen', label: "Beleggingsfonds / ETF" },
+  { value: 'aandelen', label: 'Aandeel' },
+  { value: 'bitcoin', label: 'Bitcoin' },
+]
 
 const pctFmt = new Intl.NumberFormat('nl-BE', { maximumFractionDigits: 2 })
 
@@ -397,6 +405,7 @@ function EditSecurityModal({
   const [name, setName] = useState(security.name)
   const [ticker, setTicker] = useState(security.ticker ?? '')
   const [isin, setIsin] = useState(security.isin ?? '')
+  const [soort, setSoort] = useState<SecurityKind>(security.soort)
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<SecuritySearchHit[]>([])
   const [searching, setSearching] = useState(false)
@@ -428,6 +437,7 @@ function EditSecurityModal({
       ticker: ticker.trim() || null,
       isin: isin.trim() || null,
       owner_context_id: security.owner_context_id,
+      soort,
     }
     try {
       await api(`/api/securities/${security.id}`, { method: 'PUT', body: JSON.stringify(payload) })
@@ -466,6 +476,21 @@ function EditSecurityModal({
           <label className="block">
             <span className="mb-1 block text-xs uppercase tracking-wide text-ink-3">Naam</span>
             <input className={inputClass} value={name} onChange={(e) => setName(e.target.value)} />
+          </label>
+
+          <label className="block">
+            <span className="mb-1 block text-xs uppercase tracking-wide text-ink-3">Soort</span>
+            <select
+              className={inputClass}
+              value={soort}
+              onChange={(e) => setSoort(e.target.value as SecurityKind)}
+            >
+              {SECURITY_KINDS.map((k) => (
+                <option key={k.value} value={k.value}>
+                  {k.label}
+                </option>
+              ))}
+            </select>
           </label>
 
           <label className="block">
@@ -969,6 +994,7 @@ function SecurityForm({ contextId, onSaved }: { contextId: number; onSaved: () =
   const [name, setName] = useState('')
   const [ticker, setTicker] = useState('')
   const [isin, setIsin] = useState('')
+  const [soort, setSoort] = useState<SecurityKind>('etf_fondsen')
   const [error, setError] = useState<string | null>(null)
 
   async function submit(e: FormEvent) {
@@ -983,12 +1009,14 @@ function SecurityForm({ contextId, onSaved }: { contextId: number; onSaved: () =
       ticker: ticker.trim() || null,
       isin: isin.trim() || null,
       owner_context_id: contextId,
+      soort,
     }
     try {
       await api<Security>('/api/securities', { method: 'POST', body: JSON.stringify(payload) })
       setName('')
       setTicker('')
       setIsin('')
+      setSoort('etf_fondsen')
       onSaved()
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Opslaan mislukt')
@@ -1005,6 +1033,17 @@ function SecurityForm({ contextId, onSaved }: { contextId: number; onSaved: () =
           value={name}
           onChange={(e) => setName(e.target.value)}
         />
+        <select
+          className={inputClass}
+          value={soort}
+          onChange={(e) => setSoort(e.target.value as SecurityKind)}
+        >
+          {SECURITY_KINDS.map((k) => (
+            <option key={k.value} value={k.value}>
+              {k.label}
+            </option>
+          ))}
+        </select>
         <input
           className={inputClass}
           placeholder="Ticker (bv. IWDA.AS) — optioneel"

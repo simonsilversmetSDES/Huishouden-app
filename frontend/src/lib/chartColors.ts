@@ -37,6 +37,7 @@ export const ASSET_CLASS_COLORS: Record<AssetClass, string> = {
   groepsverzekering: '#2a78d6',
   woning: '#c24a1f',
   aandelen: '#2fa32f',
+  bitcoin: '#f7931a',
 }
 
 export const ASSET_CLASS_LABEL: Record<AssetClass, string> = {
@@ -46,4 +47,5 @@ export const ASSET_CLASS_LABEL: Record<AssetClass, string> = {
   groepsverzekering: 'Groepsverzekering',
   woning: 'Woning',
   aandelen: 'Aandelen',
+  bitcoin: 'Bitcoin',
 }

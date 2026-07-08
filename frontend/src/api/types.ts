@@ -79,7 +79,13 @@ export interface CategoryPayload {
 }
 
 // Rekeningstatus (spec §6). Bedragen signed integer-centen.
-export type AccountType = 'zicht' | 'spaar' | 'belegging' | 'andere'
+export type AccountType =
+  | 'zicht'
+  | 'spaar'
+  | 'belegging'
+  | 'andere'
+  | 'pensioensparen'
+  | 'groepsverzekering'
 
 export interface Account {
   id: number
@@ -139,6 +145,10 @@ export type AssetClass =
   | 'groepsverzekering'
   | 'woning'
   | 'aandelen'
+  | 'bitcoin'
+
+// Soort belegging; de waarden vallen samen met de overeenkomstige AssetClass.
+export type SecurityKind = 'etf_fondsen' | 'aandelen' | 'bitcoin'
 
 export interface AssetValue {
   asset_class: AssetClass
@@ -178,6 +188,7 @@ export interface Security {
   ticker: string | null
   isin: string | null
   owner_context_id: number
+  soort: SecurityKind
   suggested_ticker?: string | null // afgeleid uit de naam wanneer ticker leeg is
 }
 
@@ -207,6 +218,7 @@ export interface SecurityPayload {
   ticker: string | null
   isin: string | null
   owner_context_id: number
+  soort: SecurityKind
 }
 
 export interface SecurityTransaction {
