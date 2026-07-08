@@ -1,5 +1,6 @@
 """Koers-endpoints (spec §7): manuele invoer + fetch-gate. Geen netwerk in tests."""
 
+from datetime import date
 from decimal import Decimal
 
 import pytest
@@ -10,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.config import Settings, get_settings
 from app.main import app
 from app.models import Context, Security, SecurityPrice
-from app.services.prices import to_eur
+from app.services.prices import _nearest_rate, to_eur
 
 
 class TestToEur:
@@ -25,6 +26,29 @@ class TestToEur:
     def test_zonder_koers_fout(self) -> None:
         with pytest.raises(ValueError, match="wisselkoers"):
             to_eur(Decimal("100"), "USD", None)
+
+
+class TestNearestRate:
+    """Wisselkoers-keuze bij de historische backfill: val terug op de vorige
+    beursdag als een datum (weekend/feestdag) geen notering heeft."""
+
+    fx = {
+        date(2024, 12, 30): Decimal("0.90"),
+        date(2024, 12, 31): Decimal("0.91"),
+        date(2025, 1, 2): Decimal("0.93"),
+    }
+
+    def test_exacte_dag(self) -> None:
+        assert _nearest_rate(self.fx, date(2024, 12, 31)) == Decimal("0.91")
+
+    def test_valt_terug_op_vorige_beursdag(self) -> None:
+        assert _nearest_rate(self.fx, date(2025, 1, 1)) == Decimal("0.91")
+
+    def test_geen_koers_voor_datum(self) -> None:
+        assert _nearest_rate(self.fx, date(2024, 12, 29)) is None
+
+    def test_lege_historiek(self) -> None:
+        assert _nearest_rate({}, date(2025, 1, 1)) is None
 
 
 def _security(db: Session, name: str = "IWDA", ticker: str | None = "IWDA") -> Security:

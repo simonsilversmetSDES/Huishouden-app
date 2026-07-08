@@ -11,7 +11,7 @@ koersen-fetch). Koersen komen als float uit yfinance → altijd via Decimal(str(
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 from sqlalchemy import select
@@ -24,6 +24,14 @@ from app.models import Security, SecurityPrice
 class FetchResult:
     fetched: int = 0
     failed: list[str] = field(default_factory=list)
+
+
+@dataclass
+class BackfillResult:
+    fetched: int = 0  # totaal geschreven koersrijen
+    per_security: dict[str, int] = field(default_factory=dict)
+    failed: list[str] = field(default_factory=list)  # tickers zonder bruikbare historiek
+    skipped: list[str] = field(default_factory=list)  # effecten zonder ticker
 
 
 def upsert_price(
@@ -135,6 +143,116 @@ def _last_price(ticker: object) -> object | None:
         history = ticker.history(period="1d")  # type: ignore[attr-defined]
         raw = None if history.empty else history["Close"].iloc[-1]
     return raw
+
+
+def _nearest_rate(fx: dict[date, Decimal], on: date) -> Decimal | None:
+    """Meest recente wisselkoers op of vóór `on` (weekends/feestdagen hebben geen
+    Yahoo-notering, dus terugvallen op de vorige beursdag)."""
+    best: Decimal | None = None
+    for rate_date in sorted(fx):
+        if rate_date <= on:
+            best = fx[rate_date]
+        else:
+            break
+    return best
+
+
+def _fetch_history_one(
+    yfinance: object, ticker_symbol: str, start: date, end: date
+) -> tuple[dict[date, Decimal], str | None]:
+    """Dagelijkse slotkoersen [start, end] voor één ticker + de munt ervan."""
+    ticker = yfinance.Ticker(ticker_symbol)  # type: ignore[attr-defined]
+    fast_info = getattr(ticker, "fast_info", None)
+    currency = fast_info.get("currency") if fast_info is not None else None
+    hist = ticker.history(  # type: ignore[attr-defined]
+        start=start.isoformat(), end=(end + timedelta(days=1)).isoformat(), interval="1d"
+    )
+    closes: dict[date, Decimal] = {}
+    if hist is not None and not hist.empty:
+        for timestamp, raw in hist["Close"].items():
+            if raw is None:
+                continue
+            price = Decimal(str(raw))
+            if price > 0:
+                closes[timestamp.date()] = price
+    return closes, (currency if isinstance(currency, str) else None)
+
+
+def _fx_history(
+    yfinance: object,
+    currency: str,
+    start: date,
+    end: date,
+    cache: dict[str, dict[date, Decimal]],
+) -> dict[date, Decimal]:
+    """Historiek van de wisselkoers (euro per eenheid `currency`), bv. USDEUR=X."""
+    if currency in cache:
+        return cache[currency]
+    rates: dict[date, Decimal] = {}
+    try:
+        closes, _ = _fetch_history_one(yfinance, f"{currency}EUR=X", start, end)
+        rates = closes
+    except Exception:
+        rates = {}
+    cache[currency] = rates
+    return rates
+
+
+def fetch_price_history(
+    db: Session,
+    securities: list[Security],
+    start_by_security: dict[int, date],
+    today: date,
+) -> BackfillResult:
+    """Historische dagkoersen ophalen en cachen (spec §7), per beursdag naar euro
+    omgerekend met de wisselkoers van diezelfde dag. Eenmalige backfill zodat o.a.
+    het jaarrendement en historische grafieken echte cijfers krijgen.
+
+    Best effort per ticker; de caller commit. yfinance wordt lui geïmporteerd zodat
+    de tests geen netwerk raken.
+    """
+    import yfinance  # lui geïmporteerd: enkel nodig bij een echte fetch
+
+    result = BackfillResult()
+    fx_cache: dict[str, dict[date, Decimal]] = {}
+    for security in securities:
+        if not security.ticker:
+            result.skipped.append(security.name)
+            continue
+        start = start_by_security.get(security.id)
+        if start is None:
+            continue
+        try:
+            closes, currency = _fetch_history_one(yfinance, security.ticker, start, today)
+        except Exception:
+            result.failed.append(security.ticker)
+            continue
+        if not closes:
+            result.failed.append(security.ticker)
+            continue
+
+        fx: dict[date, Decimal] | None = None
+        if currency and currency.upper() != "EUR":
+            fx = _fx_history(yfinance, currency.upper(), start, today, fx_cache)
+            if not fx:
+                result.failed.append(security.ticker)
+                continue
+
+        written = 0
+        for price_date, close in closes.items():
+            price = close
+            if fx is not None:
+                rate = _nearest_rate(fx, price_date)
+                if rate is None:
+                    continue  # geen wisselkoers vóór deze datum → koers overslaan
+                price = to_eur(close, currency, rate)
+            upsert_price(db, security.id, price_date, price, source="yfinance")
+            written += 1
+        if currency:
+            security.currency = "EUR"  # opgeslagen koers is altijd in euro
+        result.fetched += written
+        result.per_security[security.name] = written
+    return result
 
 
 def _fetch_one(yfinance: object, ticker_symbol: str) -> tuple[Decimal, str | None]:
