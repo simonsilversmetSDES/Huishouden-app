@@ -19,6 +19,7 @@ import type {
   AssetClass,
   NetWorth,
   NetWorthPayload,
+  NetWorthRow,
 } from '../api/types'
 import DonutCard from '../components/DonutCard'
 import { ASSET_CLASS_COLORS, ASSET_CLASS_LABEL, seriesColor } from '../lib/chartColors'
@@ -60,8 +61,8 @@ export default function Vermogen() {
   return (
     <div className="space-y-6">
       <h1 className="text-lg font-semibold">Vermogen</h1>
-      <AccountStatusSection contextId={contextId} />
       <NetWorthSection contextId={contextId} />
+      <AccountStatusSection contextId={contextId} />
     </div>
   )
 }
@@ -416,9 +417,17 @@ function AccountEvolution({ status }: { status: AccountStatus }) {
   )
 }
 
+/** Totaal van een maandrij, eventueel zonder de woning-klasse. */
+function rowTotalExcl(row: NetWorthRow, excludeWoning: boolean): number {
+  return row.assets
+    .filter((a) => !excludeWoning || a.asset_class !== 'woning')
+    .reduce((sum, a) => sum + a.value_cents, 0)
+}
+
 function NetWorthSection({ contextId }: { contextId: number }) {
   const [data, setData] = useState<NetWorth | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [excludeWoning, setExcludeWoning] = useState(false)
 
   const load = useCallback(() => {
     setError(null)
@@ -429,15 +438,55 @@ function NetWorthSection({ contextId }: { contextId: number }) {
 
   useEffect(load, [load])
 
-  const donutRows = (data?.latest_breakdown ?? []).map((a) => ({
+  const breakdown = (data?.latest_breakdown ?? []).filter(
+    (a) => !excludeWoning || a.asset_class !== 'woning',
+  )
+  const donutRows = breakdown.map((a) => ({
     name: ASSET_CLASS_LABEL[a.asset_class],
     cents: a.value_cents,
     color: ASSET_CLASS_COLORS[a.asset_class],
   }))
 
+  // Totaal + verandering in de weergavelaag herrekend, zodat de "zonder woning"-
+  // toggle klopt (de backend levert change altijd op het volledige totaal).
+  const rows = data?.rows ?? []
+  const totalCents = breakdown.reduce((sum, a) => sum + a.value_cents, 0)
+  const lastRow = rows.length > 0 ? rows[rows.length - 1] : undefined
+  const prevRow = rows.length > 1 ? rows[rows.length - 2] : undefined
+  const changeCents =
+    lastRow && prevRow
+      ? rowTotalExcl(lastRow, excludeWoning) - rowTotalExcl(prevRow, excludeWoning)
+      : null
+
   return (
     <section className="space-y-4">
-      <h2 className="text-base font-medium">Vermogensbalans</h2>
+      <div className="flex flex-wrap items-center gap-3">
+        <h2 className="text-base font-medium">Vermogensbalans</h2>
+        {data && rows.length > 0 && (
+          <div className="ml-auto inline-flex rounded-lg border border-edge bg-surface p-0.5 text-xs font-medium">
+            <button
+              type="button"
+              onClick={() => setExcludeWoning(false)}
+              aria-pressed={!excludeWoning}
+              className={`rounded-md px-3 py-1 transition-colors ${
+                excludeWoning ? 'text-ink-3 hover:text-ink-2' : 'bg-accent text-white'
+              }`}
+            >
+              Inclusief woning
+            </button>
+            <button
+              type="button"
+              onClick={() => setExcludeWoning(true)}
+              aria-pressed={excludeWoning}
+              className={`rounded-md px-3 py-1 transition-colors ${
+                excludeWoning ? 'bg-accent text-white' : 'text-ink-3 hover:text-ink-2'
+              }`}
+            >
+              Zonder woning
+            </button>
+          </div>
+        )}
+      </div>
 
       {error && (
         <div className="rounded-2xl border border-edge bg-surface p-6 text-sm text-ink-2">
@@ -452,9 +501,11 @@ function NetWorthSection({ contextId }: { contextId: number }) {
         <>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="rounded-2xl border border-edge bg-surface p-5">
-              <p className="text-sm text-ink-3">Totaal vermogen</p>
+              <p className="text-sm text-ink-3">
+                Totaal vermogen{excludeWoning ? ' (zonder woning)' : ''}
+              </p>
               <p className="mt-1 text-3xl font-semibold tracking-tight">
-                {formatCents(data.latest_total_cents)}
+                {formatCents(totalCents)}
               </p>
               <p className="mt-2 text-xs text-ink-3">
                 {data.latest_date
@@ -464,16 +515,16 @@ function NetWorthSection({ contextId }: { contextId: number }) {
             </div>
             <div className="rounded-2xl border border-edge bg-surface p-5">
               <p className="text-sm text-ink-3">Verandering deze maand</p>
-              {data.latest_change_cents === null ? (
+              {changeCents === null ? (
                 <p className="mt-1 text-3xl font-semibold tracking-tight text-ink-3">–</p>
               ) : (
                 <p
                   className={`mt-1 text-3xl font-semibold tracking-tight ${
-                    data.latest_change_cents < 0 ? 'text-crit' : 'text-good'
+                    changeCents < 0 ? 'text-crit' : 'text-good'
                   }`}
                 >
-                  {data.latest_change_cents > 0 ? '+' : ''}
-                  {formatCents(data.latest_change_cents)}
+                  {changeCents > 0 ? '+' : ''}
+                  {formatCents(changeCents)}
                 </p>
               )}
               <p className="mt-2 text-xs text-ink-3">t.o.v. de vorige maand</p>
@@ -482,10 +533,10 @@ function NetWorthSection({ contextId }: { contextId: number }) {
 
           <NetWorthForm contextId={contextId} data={data} onSaved={load} />
 
-          {data.rows.length > 0 && (
+          {rows.length > 0 && (
             <div className="grid gap-4 lg:grid-cols-2">
               <DonutCard title="Verdeling activa" rows={donutRows} maxSegments={6} />
-              <NetWorthEvolution data={data} />
+              <NetWorthEvolution data={data} excludeWoning={excludeWoning} />
             </div>
           )}
         </>
@@ -596,20 +647,115 @@ function NetWorthForm({
   )
 }
 
-function NetWorthEvolution({ data }: { data: NetWorth }) {
-  const series = data.rows.map((r) => ({ label: monthLabel(r.snapshot_date), total: r.total_cents }))
+function NetWorthEvolution({ data, excludeWoning }: { data: NetWorth; excludeWoning: boolean }) {
+  const [hidden, setHidden] = useState<Set<AssetClass>>(new Set())
+  const [fromYear, setFromYear] = useState<number | null>(null)
+  const [toYear, setToYear] = useState<number | null>(null)
+
+  const years = useMemo(
+    () =>
+      [...new Set(data.rows.map((r) => Number(r.snapshot_date.slice(0, 4))))].sort((a, b) => a - b),
+    [data.rows],
+  )
+
+  // Activaklassen die effectief in de data voorkomen, in vaste volgorde; woning
+  // valt weg wanneer "zonder woning" bovenaan aan staat.
+  const presentClasses = ASSET_CLASSES.filter(
+    (ac) =>
+      (!excludeWoning || ac !== 'woning') &&
+      data.rows.some((r) => r.assets.some((a) => a.asset_class === ac)),
+  )
+  const shownClasses = presentClasses.filter((ac) => !hidden.has(ac))
+
+  const effFrom = fromYear ?? years[0]
+  const effTo = toYear ?? years[years.length - 1]
+
+  const chartData = data.rows
+    .filter((r) => {
+      const y = Number(r.snapshot_date.slice(0, 4))
+      return y >= effFrom && y <= effTo
+    })
+    .map((r) => {
+      const byClass = new Map(r.assets.map((a) => [a.asset_class, a.value_cents]))
+      const point: Record<string, number | string> = { label: monthLabel(r.snapshot_date) }
+      for (const ac of shownClasses) point[ac] = byClass.get(ac) ?? 0
+      return point
+    })
+
+  function toggle(ac: AssetClass) {
+    setHidden((prev) => {
+      const next = new Set(prev)
+      if (next.has(ac)) next.delete(ac)
+      else next.add(ac)
+      return next
+    })
+  }
+
   return (
     <div className="flex flex-col rounded-2xl border border-edge bg-surface p-5">
-      <h3 className="text-sm font-medium text-ink-2">Nettowaarde-evolutie</h3>
-      <div className="mt-4 h-48">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <h3 className="text-sm font-medium text-ink-2">Nettowaarde-evolutie</h3>
+        {years.length > 1 && (
+          <div className="ml-auto flex items-center gap-1.5 text-xs text-ink-3">
+            <span>van</span>
+            <select
+              value={effFrom}
+              onChange={(e) => setFromYear(Number(e.target.value))}
+              className="rounded-md border border-edge bg-page px-1.5 py-1 text-ink-2 focus:border-accent focus:outline-none"
+            >
+              {years
+                .filter((y) => y <= effTo)
+                .map((y) => (
+                  <option key={y} value={y}>
+                    {y}
+                  </option>
+                ))}
+            </select>
+            <span>tot</span>
+            <select
+              value={effTo}
+              onChange={(e) => setToYear(Number(e.target.value))}
+              className="rounded-md border border-edge bg-page px-1.5 py-1 text-ink-2 focus:border-accent focus:outline-none"
+            >
+              {years
+                .filter((y) => y >= effFrom)
+                .map((y) => (
+                  <option key={y} value={y}>
+                    {y}
+                  </option>
+                ))}
+            </select>
+          </div>
+        )}
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1.5">
+        {presentClasses.map((ac) => {
+          const off = hidden.has(ac)
+          return (
+            <button
+              key={ac}
+              type="button"
+              onClick={() => toggle(ac)}
+              aria-pressed={!off}
+              className={`flex items-center gap-1.5 text-xs text-ink-2 transition-opacity ${
+                off ? 'opacity-40' : ''
+              }`}
+            >
+              <span
+                aria-hidden
+                className="size-2.5 rounded-sm"
+                style={{ backgroundColor: ASSET_CLASS_COLORS[ac] }}
+              />
+              <span className={off ? 'line-through' : ''}>{ASSET_CLASS_LABEL[ac]}</span>
+            </button>
+          )
+        })}
+      </div>
+
+      <div className="mt-4 h-56">
         <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={series}>
-            <defs>
-              <linearGradient id="nwFill" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#2a78d6" stopOpacity={0.25} />
-                <stop offset="100%" stopColor="#2a78d6" stopOpacity={0.02} />
-              </linearGradient>
-            </defs>
+          <AreaChart data={chartData}>
             <CartesianGrid vertical={false} stroke="#e1e0d9" />
             <XAxis
               dataKey="label"
@@ -625,7 +771,10 @@ function NetWorthEvolution({ data }: { data: NetWorth }) {
               tickFormatter={(cents: number) => euroInt.format(cents / 100)}
             />
             <Tooltip
-              formatter={(value) => [formatCents(value as number), 'Nettowaarde']}
+              formatter={(value, name) => [
+                formatCents(value as number),
+                ASSET_CLASS_LABEL[name as AssetClass] ?? name,
+              ]}
               contentStyle={{
                 backgroundColor: '#ffffff',
                 border: '1px solid rgb(11 11 11 / 0.1)',
@@ -633,14 +782,19 @@ function NetWorthEvolution({ data }: { data: NetWorth }) {
                 fontSize: 12,
               }}
             />
-            <Area
-              type="monotone"
-              dataKey="total"
-              stroke="#2a78d6"
-              strokeWidth={2}
-              fill="url(#nwFill)"
-              isAnimationActive={false}
-            />
+            {shownClasses.map((ac) => (
+              <Area
+                key={ac}
+                type="monotone"
+                dataKey={ac}
+                stackId="nw"
+                stroke={ASSET_CLASS_COLORS[ac]}
+                strokeWidth={1}
+                fill={ASSET_CLASS_COLORS[ac]}
+                fillOpacity={0.8}
+                isAnimationActive={false}
+              />
+            ))}
           </AreaChart>
         </ResponsiveContainer>
       </div>
