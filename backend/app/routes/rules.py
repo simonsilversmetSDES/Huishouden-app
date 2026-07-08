@@ -10,15 +10,15 @@ import re
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.auth.deps import CurrentUser
 from app.database import get_db
-from app.models import CategorizationRule, Category, Context
+from app.models import CategorizationRule, Category, Context, RuleContext
 from app.models.enums import MatchType
 from app.schemas.rules import RuleApplyResult, RuleIn, RuleOut
-from app.services.rules import apply_rules
+from app.services.rules import apply_rules, load_rules
 
 router = APIRouter(prefix="/api/rules", tags=["rules"])
 
@@ -53,7 +53,7 @@ def _validate_match_value(match_type: MatchType, match_value: str) -> str:
     return value
 
 
-def _to_out(rule: CategorizationRule, category_name: str | None) -> RuleOut:
+def _to_out(rule: CategorizationRule, category_name: str | None, context_ids: list[int]) -> RuleOut:
     return RuleOut(
         id=rule.id,
         context_id=rule.context_id,
@@ -64,6 +64,7 @@ def _to_out(rule: CategorizationRule, category_name: str | None) -> RuleOut:
         category_id=rule.category_id,
         category_name=category_name,
         created_from_correction=rule.created_from_correction,
+        context_ids=context_ids,
     )
 
 
@@ -74,6 +75,18 @@ def _get_rule(db: Session, rule_id: int) -> CategorizationRule:
     return rule
 
 
+def _set_applies_to(db: Session, rule: CategorizationRule, context_ids: list[int]) -> list[int]:
+    """Vervang de 'geldt voor'-set van een regel; leeg valt terug op de eigenaar-context.
+    Onbekende context-id's worden genegeerd. Geeft de effectief opgeslagen set terug."""
+    wanted = context_ids or [rule.context_id]
+    valid = set(db.scalars(select(Context.id).where(Context.id.in_(wanted))))
+    applied = [cid for cid in dict.fromkeys(wanted) if cid in valid] or [rule.context_id]
+    db.execute(delete(RuleContext).where(RuleContext.rule_id == rule.id))
+    for cid in applied:
+        db.add(RuleContext(rule_id=rule.id, context_id=cid))
+    return sorted(applied)
+
+
 @router.get("", response_model=list[RuleOut])
 def list_rules(
     _user: CurrentUser,
@@ -81,18 +94,29 @@ def list_rules(
     context_id: int,
 ) -> list[RuleOut]:
     _get_context(db, context_id)
-    rules = db.scalars(
-        select(CategorizationRule)
-        .where(CategorizationRule.context_id == context_id)
-        .order_by(CategorizationRule.priority, CategorizationRule.id)
-    ).all()
-    # Geen relationships op de modellen (conventie): categorienamen via één query.
+    # Regels die op deze context van toepassing zijn (incl. andere entiteiten, #9).
+    rules = load_rules(db, context_id)
+    if not rules:
+        return []
+    # Geen relationships op de modellen (conventie): categorienamen + koppelingen via queries.
     names = dict(
         db.execute(
-            select(Category.id, Category.name).where(Category.context_id == context_id)
+            select(Category.id, Category.name).where(
+                Category.id.in_([r.category_id for r in rules])
+            )
         ).all()
     )
-    return [_to_out(rule, names.get(rule.category_id)) for rule in rules]
+    links: dict[int, list[int]] = {}
+    for rid, cid in db.execute(
+        select(RuleContext.rule_id, RuleContext.context_id).where(
+            RuleContext.rule_id.in_([r.id for r in rules])
+        )
+    ).all():
+        links.setdefault(rid, []).append(cid)
+    return [
+        _to_out(rule, names.get(rule.category_id), sorted(links.get(rule.id) or [rule.context_id]))
+        for rule in rules
+    ]
 
 
 @router.post("", status_code=status.HTTP_201_CREATED, response_model=RuleOut)
@@ -114,8 +138,10 @@ def create_rule(
         created_from_correction=body.created_from_correction,
     )
     db.add(rule)
+    db.flush()
+    applied = _set_applies_to(db, rule, body.context_ids)
     db.commit()
-    return _to_out(rule, category.name)
+    return _to_out(rule, category.name, applied)
 
 
 @router.put("/{rule_id}", response_model=RuleOut)
@@ -139,8 +165,9 @@ def update_rule(
     rule.match_value = match_value
     rule.category_id = body.category_id
     rule.created_from_correction = body.created_from_correction
+    applied = _set_applies_to(db, rule, body.context_ids)
     db.commit()
-    return _to_out(rule, category.name)
+    return _to_out(rule, category.name, applied)
 
 
 @router.delete("/{rule_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -150,6 +177,7 @@ def delete_rule(
     db: Annotated[Session, Depends(get_db)],
 ) -> None:
     rule = _get_rule(db, rule_id)
+    db.execute(delete(RuleContext).where(RuleContext.rule_id == rule.id))
     db.delete(rule)
     db.commit()
 

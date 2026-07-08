@@ -21,7 +21,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.models import Account, Category, Context, Import, Transaction
+from app.models import Account, CategorizationRule, Category, Context, Import, Transaction
 from app.models.enums import Bank, Categorization, CategoryType, TransactionSource
 from app.schemas.imports import (
     AccountRef,
@@ -32,7 +32,12 @@ from app.schemas.imports import (
 )
 from app.services.budget import from_cents, to_cents
 from app.services.csv_parsers import ParsedRow, normalize_iban, parse_bank_csv
-from app.services.rules import MatchCandidate, load_rules, match_rule
+from app.services.rules import (
+    MatchCandidate,
+    build_category_resolver,
+    load_rules,
+    match_rule,
+)
 from app.services.transactions import UnknownCategoryError
 
 _SOURCE_BY_BANK = {
@@ -84,8 +89,8 @@ def build_preview(db: Session, filename: str, content: bytes) -> ImportPreviewOu
     parsed = parse_bank_csv(content)  # UnknownFormatError propageert naar de route
     account, unmatched = _resolve_account(db, parsed.rows)
 
-    rules = []
-    categories: dict[int, Category] = {}
+    rules: list[CategorizationRule] = []
+    resolve_category = None
     own_context_ibans: set[str] = set()
     account_ref = None
     if account is not None:
@@ -95,10 +100,7 @@ def build_preview(db: Session, filename: str, content: bytes) -> ImportPreviewOu
             id=account.id, name=account.name, context_id=context.id, context_name=context.name
         )
         rules = load_rules(db, context.id)
-        categories = {
-            category.id: category
-            for category in db.scalars(select(Category).where(Category.context_id == context.id))
-        }
+        resolve_category = build_category_resolver(db, context.id, rules)
         own_context_ibans = {
             normalize_iban(a.iban)
             for a in db.scalars(
@@ -122,7 +124,7 @@ def build_preview(db: Session, filename: str, content: bytes) -> ImportPreviewOu
                 description=row.description,
             ),
         )
-        category = categories[rule.category_id] if rule else None
+        category = resolve_category(rule) if (rule and resolve_category) else None
         is_internal = (
             row.counterparty_iban is not None
             and row.counterparty_iban in own_context_ibans

@@ -13,10 +13,10 @@ import logging
 import re
 from dataclasses import dataclass
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
-from app.models import CategorizationRule, Category, Transaction
+from app.models import CategorizationRule, Category, RuleContext, Transaction
 from app.models.enums import Categorization, MatchField, MatchType
 from app.services.csv_parsers import normalize_iban
 
@@ -40,13 +40,48 @@ class MatchCandidate:
 
 
 def load_rules(db: Session, context_id: int) -> list[CategorizationRule]:
+    """Regels die op deze context van toepassing zijn (#9): expliciet gekoppeld via
+    rule_contexts, of — bij ontbreken van elke koppeling — via de eigen context_id
+    (backward compat voor oude regels/seed)."""
+    linked = select(RuleContext.rule_id).where(RuleContext.context_id == context_id)
+    any_link = select(RuleContext.rule_id)
     return list(
         db.scalars(
             select(CategorizationRule)
-            .where(CategorizationRule.context_id == context_id)
+            .where(
+                or_(
+                    CategorizationRule.id.in_(linked),
+                    and_(
+                        CategorizationRule.context_id == context_id,
+                        CategorizationRule.id.not_in(any_link),
+                    ),
+                )
+            )
             .order_by(CategorizationRule.priority, CategorizationRule.id)
         )
     )
+
+
+def build_category_resolver(
+    db: Session, target_context_id: int, rules: list[CategorizationRule]
+):
+    """Geeft een functie regel→Category in de doelcontext, op categorienaam gematcht
+    (categorieën verschillen per entiteit). None wanneer de naam er niet bestaat."""
+    local_by_name = {
+        c.name: c
+        for c in db.scalars(select(Category).where(Category.context_id == target_context_id))
+    }
+    ids = [r.category_id for r in rules]
+    name_by_id = (
+        dict(db.execute(select(Category.id, Category.name).where(Category.id.in_(ids))).all())
+        if ids
+        else {}
+    )
+
+    def resolve(rule: CategorizationRule) -> Category | None:
+        return local_by_name.get(name_by_id.get(rule.category_id))
+
+    return resolve
 
 
 def _matches(match_type: MatchType, needle: str, value: str) -> bool:
@@ -93,10 +128,7 @@ def apply_rules(db: Session, context_id: int, rule_id: int | None = None) -> int
         rules = [rule for rule in rules if rule.id == rule_id]
     if not rules:
         return 0
-    categories = {
-        category.id: category
-        for category in db.scalars(select(Category).where(Category.context_id == context_id))
-    }
+    resolve_category = build_category_resolver(db, context_id, rules)
     transactions = db.scalars(
         select(Transaction).where(
             Transaction.context_id == context_id,
@@ -116,7 +148,9 @@ def apply_rules(db: Session, context_id: int, rule_id: int | None = None) -> int
         )
         if rule is None:
             continue
-        category = categories[rule.category_id]
+        category = resolve_category(rule)
+        if category is None:
+            continue  # categorie ontbreekt in deze entiteit → regel hier overslaan
         tx.category_id = category.id
         tx.type = category.type  # type volgt de categorie (bv. Sparen)
         tx.categorization = Categorization.AUTO

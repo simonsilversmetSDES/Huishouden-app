@@ -11,13 +11,15 @@ from app.models.enums import MatchField, MatchType
 
 
 class RuleIn(BaseModel):
-    context_id: int
+    context_id: int  # eigenaar-context (bron van de categorie)
     match_field: MatchField
     match_type: MatchType
     match_value: str
     category_id: int
     priority: int = 0
     created_from_correction: bool = False
+    # Entiteiten waarop de regel van toepassing is (#9); leeg = enkel de eigenaar.
+    context_ids: list[int] = []
 
 
 class RuleOut(BaseModel):
@@ -30,6 +32,7 @@ class RuleOut(BaseModel):
     category_id: int
     category_name: str | None
     created_from_correction: bool
+    context_ids: list[int]
 
 
 class RuleApplyResult(BaseModel):

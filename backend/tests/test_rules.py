@@ -11,7 +11,7 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import CategorizationRule, Category, Context, Transaction
+from app.models import CategorizationRule, Category, Context, RuleContext, Transaction
 from app.models.enums import (
     Categorization,
     CategoryType,
@@ -282,3 +282,78 @@ class TestApplyRules:
         by_descr = {t.description: t for t in txs}
         assert by_descr["COLRUYT GENT"].category_id is None
         assert by_descr["JUST RUSSEL DRONGEN"].category_id == katten.id
+
+
+class TestMultiEntiteit:
+    """Regel geldt voor meerdere entiteiten (#9): categorie per entiteit op naam gematcht."""
+
+    def _tx(self, context: Context, description: str) -> Transaction:
+        return Transaction(
+            context_id=context.id,
+            date=date(2026, 6, 15),
+            amount=Decimal("-10.00"),
+            type=CategoryType.UITGAVEN,
+            description=description,
+            categorization=Categorization.UNCATEGORIZED,
+        )
+
+    def _link(self, db: Session, rule: CategorizationRule, *contexts: Context) -> None:
+        db.flush()
+        db.add_all(RuleContext(rule_id=rule.id, context_id=c.id) for c in contexts)
+
+    def test_regel_geldt_voor_andere_entiteit(self, seeded_db: Session) -> None:
+        gem = _context(seeded_db, "Gemeenschappelijk")
+        simon = _context(seeded_db, "Simon")
+        rule = _rule(gem, _category(seeded_db, gem, "Boodschappen"), value="COLRUYT")
+        seeded_db.add(rule)
+        self._link(seeded_db, rule, gem, simon)
+        tx = self._tx(simon, "Betaling COLRUYT Gent")
+        seeded_db.add(tx)
+        seeded_db.commit()
+
+        # De Gemeenschappelijk-regel wordt geladen én toegepast voor Simon,
+        # met Simon's eigen 'Boodschappen'-categorie.
+        assert any(r.id == rule.id for r in load_rules(seeded_db, simon.id))
+        assert apply_rules(seeded_db, simon.id) == 1
+        seeded_db.commit()
+        assert tx.category_id == _category(seeded_db, simon, "Boodschappen").id
+        assert tx.categorization == Categorization.AUTO
+
+    def test_ontbrekende_categorie_wordt_overgeslagen(self, seeded_db: Session) -> None:
+        simon = _context(seeded_db, "Simon")
+        gem = _context(seeded_db, "Gemeenschappelijk")
+        # 'Loon' bestaat bij Simon, niet bij Gemeenschappelijk (seed).
+        rule = _rule(simon, _category(seeded_db, simon, "Loon"), value="WEDDE")
+        seeded_db.add(rule)
+        self._link(seeded_db, rule, gem)  # enkel aan Gemeenschappelijk gekoppeld
+        tx = self._tx(gem, "WEDDE juni")
+        seeded_db.add(tx)
+        seeded_db.commit()
+
+        # Regel matcht, maar 'Loon' ontbreekt bij Gemeenschappelijk → overgeslagen.
+        assert apply_rules(seeded_db, gem.id) == 0
+        assert tx.categorization == Categorization.UNCATEGORIZED
+
+    def test_route_maakt_regel_voor_meerdere_entiteiten(
+        self, logged_in, seeded_db: Session
+    ) -> None:
+        gem = _context(seeded_db, "Gemeenschappelijk")
+        simon = _context(seeded_db, "Simon")
+        cat = _category(seeded_db, gem, "Boodschappen")
+        resp = logged_in.post(
+            "/api/rules",
+            json={
+                "context_id": gem.id,
+                "match_field": "description",
+                "match_type": "contains",
+                "match_value": "COLRUYT",
+                "category_id": cat.id,
+                "priority": 100,
+                "context_ids": [gem.id, simon.id],
+            },
+        )
+        assert resp.status_code == 201
+        assert sorted(resp.json()["context_ids"]) == sorted([gem.id, simon.id])
+        # De regel duikt op in de lijst van Simon (andere entiteit).
+        listed = logged_in.get("/api/rules", params={"context_id": simon.id}).json()
+        assert any(r["match_value"] == "COLRUYT" for r in listed)

@@ -72,3 +72,15 @@ class CategorizationRule(Base):
     match_value: Mapped[str] = mapped_column(String)
     category_id: Mapped[int] = mapped_column(ForeignKey("categories.id"))
     created_from_correction: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class RuleContext(Base):
+    """Op welke entiteiten een categorisatieregel van toepassing is (spec §5.3, #9).
+
+    Bron van waarheid voor de 'geldt voor'-set. Een regel zonder rijen hier valt terug
+    op zijn eigen `CategorizationRule.context_id` (backward compat)."""
+
+    __tablename__ = "rule_contexts"
+
+    rule_id: Mapped[int] = mapped_column(ForeignKey("categorization_rules.id"), primary_key=True)
+    context_id: Mapped[int] = mapped_column(ForeignKey("contexts.id"), primary_key=True)
