@@ -428,18 +428,37 @@ function rowTotalExcl(row: NetWorthRow, excludeWoning: boolean): number {
 }
 
 function NetWorthSection({ contextId }: { contextId: number }) {
+  const { contexts } = useAppState()
   const [data, setData] = useState<NetWorth | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [excludeWoning, setExcludeWoning] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<number[]>([contextId])
+
+  // Volgt de globale context-switcher; binnen de tab kan je meerdere entiteiten optellen.
+  useEffect(() => setSelectedIds([contextId]), [contextId])
 
   const load = useCallback(() => {
     setError(null)
-    api<NetWorth>(`/api/net-worth?context_id=${contextId}`)
+    const url =
+      selectedIds.length <= 1
+        ? `/api/net-worth?context_id=${selectedIds[0] ?? contextId}`
+        : `/api/net-worth/combined?${selectedIds.map((id) => `context_ids=${id}`).join('&')}`
+    api<NetWorth>(url)
       .then(setData)
       .catch(() => setError('Vermogensbalans laden mislukt — probeer opnieuw'))
-  }, [contextId])
+  }, [selectedIds, contextId])
 
   useEffect(load, [load])
+
+  function toggleContext(id: number) {
+    setSelectedIds((prev) => {
+      if (prev.includes(id)) return prev.length === 1 ? prev : prev.filter((x) => x !== id)
+      // volgorde volgens de contexts-lijst behouden
+      return contexts.filter((c) => c.id === id || prev.includes(c.id)).map((c) => c.id)
+    })
+  }
+
+  const singleId = selectedIds.length === 1 ? selectedIds[0] : null
 
   const breakdown = (data?.latest_breakdown ?? []).filter(
     (a) => !excludeWoning || a.asset_class !== 'woning',
@@ -491,6 +510,28 @@ function NetWorthSection({ contextId }: { contextId: number }) {
         )}
       </div>
 
+      {contexts.length > 1 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-xs text-ink-3">Entiteiten:</span>
+          {contexts.map((c) => {
+            const on = selectedIds.includes(c.id)
+            return (
+              <button
+                key={c.id}
+                type="button"
+                onClick={() => toggleContext(c.id)}
+                aria-pressed={on}
+                className={`rounded-lg border px-3 py-1 text-xs font-medium transition-colors ${
+                  on ? 'border-accent bg-accent text-white' : 'border-edge text-ink-3 hover:text-ink-2'
+                }`}
+              >
+                {c.name}
+              </button>
+            )
+          })}
+        </div>
+      )}
+
       {error && (
         <div className="rounded-2xl border border-edge bg-surface p-6 text-sm text-ink-2">
           {error}{' '}
@@ -534,7 +575,13 @@ function NetWorthSection({ contextId }: { contextId: number }) {
             </div>
           </div>
 
-          <NetWorthForm contextId={contextId} data={data} onSaved={load} />
+          {singleId !== null ? (
+            <NetWorthForm contextId={singleId} data={data} onSaved={load} />
+          ) : (
+            <p className="rounded-2xl border border-dashed border-edge bg-surface px-5 py-3 text-xs text-ink-3">
+              Woning-waarde bewerken kan per entiteit — selecteer één entiteit hierboven.
+            </p>
+          )}
 
           {rows.length > 0 && (
             <div className="grid gap-4 lg:grid-cols-2">
