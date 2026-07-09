@@ -334,10 +334,12 @@ class TestMultiEntiteit:
         assert apply_rules(seeded_db, gem.id) == 0
         assert tx.categorization == Categorization.UNCATEGORIZED
 
-    def test_opslaan_filtert_niet_toepasbare_entiteiten(
+    def test_opslaan_behoudt_niet_toepasbare_entiteiten(
         self, logged_in, seeded_db: Session
     ) -> None:
-        """'Geldt voor' mag enkel entiteiten bevatten waar de categorie(naam) bestaat:
+        """'Geldt voor' mag ook entiteiten bevatten zonder gelijknamige categorie: die
+        blijven bewaard (de engine slaat ze stil over), maar vallen buiten
+        applicable_context_ids zodat de UI ze als waarschuwing kan tonen.
         'Loon' bestaat bij Simon/Jozefien maar niet bij Gemeenschappelijk (seed)."""
         gem = _context(seeded_db, "Gemeenschappelijk")
         simon = _context(seeded_db, "Simon")
@@ -357,8 +359,9 @@ class TestMultiEntiteit:
         )
         assert resp.status_code == 201
         data = resp.json()
-        # Gemeenschappelijk heeft geen 'Loon' → eruit gefilterd bij het opslaan.
-        assert sorted(data["context_ids"]) == sorted([simon.id, jozefien.id])
+        # Alle drie bewaard, ook al bestaat 'Loon' niet bij Gemeenschappelijk...
+        assert sorted(data["context_ids"]) == sorted([gem.id, simon.id, jozefien.id])
+        # ...maar Gemeenschappelijk is niet 'toepasbaar' (geen actieve categorie 'Loon').
         assert sorted(data["applicable_context_ids"]) == sorted([simon.id, jozefien.id])
 
     def test_lijst_geeft_toepasbaarheid_per_regel(self, logged_in, seeded_db: Session) -> None:

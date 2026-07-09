@@ -95,16 +95,16 @@ def _get_rule(db: Session, rule_id: int) -> CategorizationRule:
 
 
 def _set_applies_to(
-    db: Session, rule: CategorizationRule, context_ids: list[int], applicable: set[int]
+    db: Session, rule: CategorizationRule, context_ids: list[int]
 ) -> list[int]:
     """Vervang de 'geldt voor'-set van een regel; leeg valt terug op de eigenaar-context.
-    Onbekende context-id's en entiteiten waar de categorie(naam) niet bestaat worden
-    genegeerd. Geeft de effectief opgeslagen set terug."""
+    Onbekende context-id's worden genegeerd. Een entiteit mag ook aan staan zonder
+    gelijknamige (actieve) categorie — de engine slaat de regel daar dan gewoon stil
+    over; de UI toont het als waarschuwing (applicable_context_ids). Geeft de effectief
+    opgeslagen set terug."""
     wanted = context_ids or [rule.context_id]
     valid = set(db.scalars(select(Context.id).where(Context.id.in_(wanted))))
-    applied = [cid for cid in dict.fromkeys(wanted) if cid in valid and cid in applicable] or [
-        rule.context_id
-    ]
+    applied = [cid for cid in dict.fromkeys(wanted) if cid in valid] or [rule.context_id]
     db.execute(delete(RuleContext).where(RuleContext.rule_id == rule.id))
     for cid in applied:
         db.add(RuleContext(rule_id=rule.id, context_id=cid))
@@ -178,7 +178,7 @@ def create_rule(
     db.add(rule)
     db.flush()
     applicable = _contexts_with_category(db, category.name)
-    applied = _set_applies_to(db, rule, body.context_ids, applicable)
+    applied = _set_applies_to(db, rule, body.context_ids)
     db.commit()
     return _to_out(rule, category.name, applied, applicable)
 
@@ -205,7 +205,7 @@ def update_rule(
     rule.category_id = body.category_id
     rule.created_from_correction = body.created_from_correction
     applicable = _contexts_with_category(db, category.name)
-    applied = _set_applies_to(db, rule, body.context_ids, applicable)
+    applied = _set_applies_to(db, rule, body.context_ids)
     db.commit()
     return _to_out(rule, category.name, applied, applicable)
 

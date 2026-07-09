@@ -24,6 +24,7 @@ export default function Rules() {
   const [error, setError] = useState<string | null>(null)
   const [applyMsg, setApplyMsg] = useState<string | null>(null)
   const [applying, setApplying] = useState(false)
+  const [togglingId, setTogglingId] = useState<number | null>(null)
   const formRef = useRef<HTMLElement>(null)
 
   useEffect(() => {
@@ -62,8 +63,6 @@ export default function Rules() {
       setError('Verwijderen mislukt — probeer opnieuw')
     }
   }
-
-  const [togglingId, setTogglingId] = useState<number | null>(null)
 
   // Badge-klik in de tabel: entiteit aan/uit zetten zonder het bewerkformulier.
   async function toggleContext(rule: Rule, ctxId: number) {
@@ -462,8 +461,10 @@ function RuleTable({
   )
 }
 
-/** Klikbare 'geldt voor'-badge: aan = vol, uit = gestippeld/licht (klik zet aan),
- * niet-toepasbaar (categorie bestaat er niet actief) = uitgegrijsd en niet klikbaar. */
+/** Klikbare 'geldt voor'-badge: aan = vol, uit = gestippeld/licht (klik zet aan).
+ * Niet-toepasbaar (geen actieve categorie met die naam bij deze entiteit) blijft
+ * klikbaar, maar krijgt een waarschuwingsstijl (amber) + tooltip: de regel doet daar
+ * voorlopig niets tot je er een gelijknamige categorie aanmaakt. */
 function ContextBadge({
   rule,
   context,
@@ -479,33 +480,33 @@ function ContextBadge({
   const on = rule.context_ids.includes(context.id)
   const lastOne = on && rule.context_ids.length === 1
 
-  if (!applicable) {
-    return (
-      <span
-        title={`Categorie "${rule.category_name ?? '?'}" bestaat niet (actief) bij ${context.name}`}
-        className="cursor-not-allowed rounded-md border border-dashed border-line px-1.5 py-0.5 text-[11px] text-ink-3 opacity-40"
-      >
-        {context.name}
-      </span>
-    )
-  }
+  const warnHint = `Categorie "${rule.category_name ?? '?'}" bestaat niet (actief) bij ${context.name} — de regel doet hier voorlopig niets`
+  const title = lastOne
+    ? 'Minstens één entiteit vereist'
+    : !applicable
+      ? warnHint
+      : on
+        ? `Klik om uit te schakelen bij ${context.name}`
+        : `Klik om in te schakelen bij ${context.name}`
+
+  const style = !applicable
+    ? on
+      ? 'border border-warn/40 bg-warn/10 text-warn'
+      : 'border border-dashed border-warn/40 text-warn/70 opacity-70 hover:opacity-100 hover:bg-warn/10'
+    : on
+      ? 'border border-transparent bg-raised text-ink-2 hover:bg-accent/15'
+      : 'border border-dashed border-edge text-ink-3 opacity-60 hover:border-accent hover:text-accent hover:opacity-100'
+
   return (
     <button
       onClick={onToggle}
       disabled={busy || lastOne}
-      title={
-        lastOne
-          ? 'Minstens één entiteit vereist'
-          : on
-            ? `Klik om uit te schakelen bij ${context.name}`
-            : `Klik om in te schakelen bij ${context.name}`
-      }
-      className={`rounded-md px-1.5 py-0.5 text-[11px] transition-colors disabled:cursor-default ${
-        on
-          ? 'border border-transparent bg-raised text-ink-2 hover:bg-accent/15'
-          : 'border border-dashed border-edge text-ink-3 opacity-60 hover:border-accent hover:text-accent hover:opacity-100'
-      } ${busy ? 'opacity-40' : ''}`}
+      title={title}
+      className={`rounded-md px-1.5 py-0.5 text-[11px] transition-colors disabled:cursor-default ${style} ${
+        busy ? 'opacity-40' : ''
+      }`}
     >
+      {!applicable && <span aria-hidden className="mr-0.5">⚠</span>}
       {context.name}
     </button>
   )
