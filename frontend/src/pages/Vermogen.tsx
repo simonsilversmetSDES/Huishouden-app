@@ -459,8 +459,6 @@ function NetWorthSection({ contextId }: { contextId: number }) {
     })
   }
 
-  const singleId = selectedIds.length === 1 ? selectedIds[0] : null
-
   const breakdown = (data?.latest_breakdown ?? []).filter(
     (a) => !excludeWoning || a.asset_class !== 'woning',
   )
