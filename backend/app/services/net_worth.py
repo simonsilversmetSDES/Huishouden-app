@@ -16,6 +16,7 @@ Activaklassen worden zoveel mogelijk **automatisch afgeleid**:
 
 from __future__ import annotations
 
+from calendar import monthrange
 from datetime import date
 from decimal import Decimal
 
@@ -26,7 +27,8 @@ from app.models import Account, AccountSnapshot, Context, NetWorthSnapshot, Secu
 from app.models.enums import ACCOUNT_TYPE_ASSET_CLASS, AssetClass
 from app.schemas.snapshots import AssetValue, NetWorthOut, NetWorthRow
 from app.services.budget import ZERO, to_cents
-from app.services.investments import build_portfolio
+from app.services.investments import beleggingen_by_class_history, build_portfolio
+from app.services.loans import woning_equity_by_context
 
 
 def _account_values_by_month(db: Session, context_id: int) -> dict[date, dict[AssetClass, Decimal]]:
@@ -82,13 +84,32 @@ def build_net_worth(db: Session, context: Context, today: date | None = None) ->
         for asset_class, value in class_values.items():
             month[asset_class] = value
 
-    # Beleggingen enkel op de huidige maand; oudere maanden houden hun manuele snapshot.
+    current_month = date(today.year, today.month, 1)
+
+    # Beleggingen op de huidige maand live uit de actuele portefeuille.
     beleggingen = _beleggingen_by_class(db, context)
     if beleggingen:
-        current_month = date(today.year, today.month, 1)
         month = by_date.setdefault(current_month, {})
         for asset_class, value in beleggingen.items():
             month[asset_class] = value
+
+    # Oudere maanden zonder beleggingen-waarde aanvullen uit transacties + koers-
+    # historiek (waarde op het einde van die maand); bestaande manuele/Excel-
+    # snapshots winnen. Er worden geen nieuwe maanden aangemaakt.
+    past_months = [m for m in by_date if m < current_month]
+    if past_months:
+        as_of = {m: date(m.year, m.month, monthrange(m.year, m.month)[1]) for m in past_months}
+        history = beleggingen_by_class_history(db, context, sorted(set(as_of.values())))
+        for m, end in as_of.items():
+            month = by_date[m]
+            for asset_class, value in history.get(end, {}).items():
+                month.setdefault(asset_class, value)
+
+    # Woning-aandeel uit de lening (spec §8): equity per persoon, enkel de huidige
+    # maand; oudere maanden houden hun manuele woning-snapshot.
+    woning_equity = woning_equity_by_context(db, today).get(context.id)
+    if woning_equity is not None:
+        by_date.setdefault(current_month, {})[AssetClass.WONING] = woning_equity
 
     rows: list[NetWorthRow] = []
     prev_total: Decimal | None = None

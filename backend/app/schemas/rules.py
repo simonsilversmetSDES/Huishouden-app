@@ -33,6 +33,8 @@ class RuleOut(BaseModel):
     category_name: str | None
     created_from_correction: bool
     context_ids: list[int]
+    # Entiteiten waar de categorie(naam) bestaat — enkel daar kán de regel gelden.
+    applicable_context_ids: list[int]
 
 
 class RuleApplyResult(BaseModel):

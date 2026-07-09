@@ -334,6 +334,80 @@ class TestMultiEntiteit:
         assert apply_rules(seeded_db, gem.id) == 0
         assert tx.categorization == Categorization.UNCATEGORIZED
 
+    def test_opslaan_filtert_niet_toepasbare_entiteiten(
+        self, logged_in, seeded_db: Session
+    ) -> None:
+        """'Geldt voor' mag enkel entiteiten bevatten waar de categorie(naam) bestaat:
+        'Loon' bestaat bij Simon/Jozefien maar niet bij Gemeenschappelijk (seed)."""
+        gem = _context(seeded_db, "Gemeenschappelijk")
+        simon = _context(seeded_db, "Simon")
+        jozefien = _context(seeded_db, "Jozefien")
+        loon = _category(seeded_db, simon, "Loon")
+        resp = logged_in.post(
+            "/api/rules",
+            json={
+                "context_id": simon.id,
+                "match_field": "description",
+                "match_type": "contains",
+                "match_value": "WEDDE",
+                "category_id": loon.id,
+                "priority": 100,
+                "context_ids": [gem.id, simon.id, jozefien.id],
+            },
+        )
+        assert resp.status_code == 201
+        data = resp.json()
+        # Gemeenschappelijk heeft geen 'Loon' → eruit gefilterd bij het opslaan.
+        assert sorted(data["context_ids"]) == sorted([simon.id, jozefien.id])
+        assert sorted(data["applicable_context_ids"]) == sorted([simon.id, jozefien.id])
+
+    def test_lijst_geeft_toepasbaarheid_per_regel(self, logged_in, seeded_db: Session) -> None:
+        gem = _context(seeded_db, "Gemeenschappelijk")
+        simon = _context(seeded_db, "Simon")
+        jozefien = _context(seeded_db, "Jozefien")
+        rule = _rule(simon, _category(seeded_db, simon, "Loon"), value="WEDDE")
+        seeded_db.add(rule)
+        self._link(seeded_db, rule, simon)
+        seeded_db.commit()
+
+        listed = logged_in.get("/api/rules", params={"context_id": simon.id}).json()
+        out = next(r for r in listed if r["match_value"] == "WEDDE")
+        assert sorted(out["applicable_context_ids"]) == sorted([simon.id, jozefien.id])
+        assert gem.id not in out["applicable_context_ids"]
+
+    def test_inactieve_categorie_telt_niet_als_toepasbaar(
+        self, logged_in, seeded_db: Session
+    ) -> None:
+        """'Bestaat niet' = geen ACTIEVE categorie met die naam: een gedeactiveerde
+        categorie (bv. 'Boodschappen' bij Simon/Jozefien) maakt de regel daar
+        niet-toepasbaar."""
+        simon = _context(seeded_db, "Simon")
+        jozefien = _context(seeded_db, "Jozefien")
+        _category(seeded_db, jozefien, "Loon").active = False
+        rule = _rule(simon, _category(seeded_db, simon, "Loon"), value="WEDDE")
+        seeded_db.add(rule)
+        self._link(seeded_db, rule, simon)
+        seeded_db.commit()
+
+        listed = logged_in.get("/api/rules", params={"context_id": simon.id}).json()
+        out = next(r for r in listed if r["match_value"] == "WEDDE")
+        assert out["applicable_context_ids"] == [simon.id]
+
+    def test_engine_slaat_inactieve_categorie_over(self, seeded_db: Session) -> None:
+        """De regelengine categoriseert nooit in een gedeactiveerde categorie."""
+        simon = _context(seeded_db, "Simon")
+        loon = _category(seeded_db, simon, "Loon")
+        loon.active = False
+        rule = _rule(simon, loon, value="WEDDE")
+        seeded_db.add(rule)
+        self._link(seeded_db, rule, simon)
+        tx = self._tx(simon, "WEDDE juni")
+        seeded_db.add(tx)
+        seeded_db.commit()
+
+        assert apply_rules(seeded_db, simon.id) == 0
+        assert tx.categorization == Categorization.UNCATEGORIZED
+
     def test_route_maakt_regel_voor_meerdere_entiteiten(
         self, logged_in, seeded_db: Session
     ) -> None:

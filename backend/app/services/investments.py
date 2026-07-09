@@ -25,7 +25,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import Context, Security, SecurityPrice, SecuritySplit, SecurityTransaction
-from app.models.enums import SecuritySide
+from app.models.enums import AssetClass, SecuritySide
 from app.schemas.investments import (
     PortfolioOut,
     PositionOut,
@@ -273,6 +273,73 @@ def _value_as_of(
     return total, complete
 
 
+def _load_tx_history(
+    db: Session, security_ids: list[int]
+) -> tuple[
+    dict[int, list[SecurityTransaction]],
+    dict[int, list[SecuritySplit]],
+    dict[int, list[tuple[date, Decimal]]],
+]:
+    """Transacties, splits en koershistoriek per effect (chronologisch gesorteerd)."""
+    by_security: dict[int, list[SecurityTransaction]] = defaultdict(list)
+    for tx in db.scalars(
+        select(SecurityTransaction)
+        .where(SecurityTransaction.security_id.in_(security_ids))
+        .order_by(SecurityTransaction.date, SecurityTransaction.id)
+    ):
+        by_security[tx.security_id].append(tx)
+
+    splits_by_security: dict[int, list[SecuritySplit]] = defaultdict(list)
+    for split in db.scalars(
+        select(SecuritySplit).where(SecuritySplit.security_id.in_(security_ids))
+    ):
+        splits_by_security[split.security_id].append(split)
+
+    prices_by_security: dict[int, list[tuple[date, Decimal]]] = defaultdict(list)
+    for price in db.scalars(
+        select(SecurityPrice)
+        .where(SecurityPrice.security_id.in_(security_ids))
+        .order_by(SecurityPrice.date)
+    ):
+        prices_by_security[price.security_id].append((price.date, price.price))
+
+    return by_security, splits_by_security, prices_by_security
+
+
+def beleggingen_by_class_history(
+    db: Session, context: Context, dates: list[date]
+) -> dict[date, dict[AssetClass, Decimal]]:
+    """Beleggingswaarde per activaklasse op elk van de gegeven datums (spec §9):
+    aantallen uit de transacties (split-correct), gewaardeerd met de recentste
+    koers op of vóór de datum. Effecten zonder positie of zonder koers blijven
+    weg, zodat de vermogensbalans geen nul-rijen krijgt."""
+    securities = list(
+        db.scalars(select(Security).where(Security.owner_context_id == context.id))
+    )
+    if not securities or not dates:
+        return {}
+    by_security, splits_by_security, prices_by_security = _load_tx_history(
+        db, [s.id for s in securities]
+    )
+    out: dict[date, dict[AssetClass, Decimal]] = {}
+    for on in dates:
+        totals: dict[AssetClass, Decimal] = {}
+        for security in securities:
+            shares = _shares_as_of(
+                by_security.get(security.id, []), splits_by_security.get(security.id, []), on
+            )
+            if shares == ZERO:
+                continue
+            price = _price_as_of(prices_by_security.get(security.id, []), on, allow_stale=True)
+            if price is None:
+                continue
+            asset_class = AssetClass(security.soort.value)
+            totals[asset_class] = totals.get(asset_class, ZERO) + price * shares
+        if totals:
+            out[on] = totals
+    return out
+
+
 def yearly_returns(
     db: Session, context: Context, today: date | None = None
 ) -> list[YearReturnOut]:
@@ -292,31 +359,11 @@ def yearly_returns(
     )
     if not securities:
         return []
-    security_ids = [s.id for s in securities]
-
-    by_security: dict[int, list[SecurityTransaction]] = defaultdict(list)
-    for tx in db.scalars(
-        select(SecurityTransaction)
-        .where(SecurityTransaction.security_id.in_(security_ids))
-        .order_by(SecurityTransaction.date, SecurityTransaction.id)
-    ):
-        by_security[tx.security_id].append(tx)
+    by_security, splits_by_security, prices_by_security = _load_tx_history(
+        db, [s.id for s in securities]
+    )
     if not any(by_security.values()):
         return []
-
-    splits_by_security: dict[int, list[SecuritySplit]] = defaultdict(list)
-    for split in db.scalars(
-        select(SecuritySplit).where(SecuritySplit.security_id.in_(security_ids))
-    ):
-        splits_by_security[split.security_id].append(split)
-
-    prices_by_security: dict[int, list[tuple[date, Decimal]]] = defaultdict(list)
-    for price in db.scalars(
-        select(SecurityPrice)
-        .where(SecurityPrice.security_id.in_(security_ids))
-        .order_by(SecurityPrice.date)
-    ):
-        prices_by_security[price.security_id].append((price.date, price.price))
 
     first_year = min(tx.date.year for txns in by_security.values() for tx in txns)
 

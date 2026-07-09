@@ -66,10 +66,14 @@ def build_category_resolver(
     db: Session, target_context_id: int, rules: list[CategorizationRule]
 ):
     """Geeft een functie regel→Category in de doelcontext, op categorienaam gematcht
-    (categorieën verschillen per entiteit). None wanneer de naam er niet bestaat."""
+    (categorieën verschillen per entiteit). None wanneer de naam er niet bestaat of
+    de categorie er inactief is — een regel mag nooit in een gedeactiveerde
+    categorie categoriseren."""
     local_by_name = {
         c.name: c
-        for c in db.scalars(select(Category).where(Category.context_id == target_context_id))
+        for c in db.scalars(
+            select(Category).where(Category.context_id == target_context_id, Category.active)
+        )
     }
     ids = [r.category_id for r in rules]
     name_by_id = (

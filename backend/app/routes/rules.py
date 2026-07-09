@@ -53,7 +53,25 @@ def _validate_match_value(match_type: MatchType, match_value: str) -> str:
     return value
 
 
-def _to_out(rule: CategorizationRule, category_name: str | None, context_ids: list[int]) -> RuleOut:
+def _contexts_with_category(db: Session, category_name: str | None) -> set[int]:
+    """Contexts die een ACTIEVE categorie met deze naam hebben — enkel daar kán de
+    regel gelden (de engine lost de categorie per entiteit op naam op en slaat
+    inactieve categorieën over)."""
+    if category_name is None:
+        return set()
+    return set(
+        db.scalars(
+            select(Category.context_id).where(Category.name == category_name, Category.active)
+        )
+    )
+
+
+def _to_out(
+    rule: CategorizationRule,
+    category_name: str | None,
+    context_ids: list[int],
+    applicable: set[int],
+) -> RuleOut:
     return RuleOut(
         id=rule.id,
         context_id=rule.context_id,
@@ -65,6 +83,7 @@ def _to_out(rule: CategorizationRule, category_name: str | None, context_ids: li
         category_name=category_name,
         created_from_correction=rule.created_from_correction,
         context_ids=context_ids,
+        applicable_context_ids=sorted(applicable),
     )
 
 
@@ -75,12 +94,17 @@ def _get_rule(db: Session, rule_id: int) -> CategorizationRule:
     return rule
 
 
-def _set_applies_to(db: Session, rule: CategorizationRule, context_ids: list[int]) -> list[int]:
+def _set_applies_to(
+    db: Session, rule: CategorizationRule, context_ids: list[int], applicable: set[int]
+) -> list[int]:
     """Vervang de 'geldt voor'-set van een regel; leeg valt terug op de eigenaar-context.
-    Onbekende context-id's worden genegeerd. Geeft de effectief opgeslagen set terug."""
+    Onbekende context-id's en entiteiten waar de categorie(naam) niet bestaat worden
+    genegeerd. Geeft de effectief opgeslagen set terug."""
     wanted = context_ids or [rule.context_id]
     valid = set(db.scalars(select(Context.id).where(Context.id.in_(wanted))))
-    applied = [cid for cid in dict.fromkeys(wanted) if cid in valid] or [rule.context_id]
+    applied = [cid for cid in dict.fromkeys(wanted) if cid in valid and cid in applicable] or [
+        rule.context_id
+    ]
     db.execute(delete(RuleContext).where(RuleContext.rule_id == rule.id))
     for cid in applied:
         db.add(RuleContext(rule_id=rule.id, context_id=cid))
@@ -113,8 +137,22 @@ def list_rules(
         )
     ).all():
         links.setdefault(rid, []).append(cid)
+    # Toepasbaarheid per categorienaam (één query voor alle regels samen);
+    # inactieve categorieën tellen niet mee.
+    ctx_by_name: dict[str, set[int]] = {}
+    for ctx_id, cat_name in db.execute(
+        select(Category.context_id, Category.name).where(
+            Category.name.in_(set(names.values())), Category.active
+        )
+    ).all():
+        ctx_by_name.setdefault(cat_name, set()).add(ctx_id)
     return [
-        _to_out(rule, names.get(rule.category_id), sorted(links.get(rule.id) or [rule.context_id]))
+        _to_out(
+            rule,
+            names.get(rule.category_id),
+            sorted(links.get(rule.id) or [rule.context_id]),
+            ctx_by_name.get(names.get(rule.category_id), set()),
+        )
         for rule in rules
     ]
 
@@ -139,9 +177,10 @@ def create_rule(
     )
     db.add(rule)
     db.flush()
-    applied = _set_applies_to(db, rule, body.context_ids)
+    applicable = _contexts_with_category(db, category.name)
+    applied = _set_applies_to(db, rule, body.context_ids, applicable)
     db.commit()
-    return _to_out(rule, category.name, applied)
+    return _to_out(rule, category.name, applied, applicable)
 
 
 @router.put("/{rule_id}", response_model=RuleOut)
@@ -165,9 +204,10 @@ def update_rule(
     rule.match_value = match_value
     rule.category_id = body.category_id
     rule.created_from_correction = body.created_from_correction
-    applied = _set_applies_to(db, rule, body.context_ids)
+    applicable = _contexts_with_category(db, category.name)
+    applied = _set_applies_to(db, rule, body.context_ids, applicable)
     db.commit()
-    return _to_out(rule, category.name, applied)
+    return _to_out(rule, category.name, applied, applicable)
 
 
 @router.delete("/{rule_id}", status_code=status.HTTP_204_NO_CONTENT)

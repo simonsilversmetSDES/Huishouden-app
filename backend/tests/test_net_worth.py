@@ -187,6 +187,32 @@ class TestBeleggingenAfleiding:
         assert breakdown[AssetClass.ETF_FONDSEN] == 150000  # 10 × 150
         assert breakdown[AssetClass.AANDELEN] == 100000  # 5 × 200
 
+    def test_ontbrekende_oudere_maand_uit_koershistoriek(self, seeded_db: Session) -> None:
+        """Een maand die al in de reeks zit maar geen beleggingen-waarde heeft, wordt
+        aangevuld uit transacties + koershistoriek (recentste koers ≤ einde maand)."""
+        ctx = _context(seeded_db, "Simon")
+        etf = self._security(seeded_db, ctx, "IWDA", SecurityKind.ETF_FONDSEN)
+        self._buy(seeded_db, etf, "10", "100", "1000")  # aankoop op 01/01/2026
+        seeded_db.add_all(
+            [
+                SecurityPrice(security_id=etf.id, date=date(2026, 6, 26), price=Decimal("140")),
+                SecurityPrice(security_id=etf.id, date=date(2026, 7, 7), price=Decimal("150")),
+            ]
+        )
+        # December bestaat al maar valt vóór de eerste aankoop; juni bestaat (contant)
+        # maar mist de beleggingen-waarde.
+        _nw(seeded_db, ctx, date(2025, 12, 1), AssetClass.CONTANT, "100.00")
+        _nw(seeded_db, ctx, date(2026, 6, 1), AssetClass.CONTANT, "100.00")
+        seeded_db.commit()
+
+        out = build_net_worth(seeded_db, ctx, today=date(2026, 7, 8))
+        by_month = {
+            r.snapshot_date: {a.asset_class: a.value_cents for a in r.assets} for r in out.rows
+        }
+        assert by_month[date(2026, 6, 1)][AssetClass.ETF_FONDSEN] == 140000  # 10 × 140 (26/06)
+        assert AssetClass.ETF_FONDSEN not in by_month[date(2025, 12, 1)]  # nog geen positie
+        assert by_month[date(2026, 7, 1)][AssetClass.ETF_FONDSEN] == 150000  # huidige maand live
+
     def test_oudere_maand_manueel_blijft(self, seeded_db: Session) -> None:
         ctx = _context(seeded_db, "Jozefien")
         _nw(seeded_db, ctx, date(2026, 3, 1), AssetClass.ETF_FONDSEN, "1000.00")  # oude manuele
