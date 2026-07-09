@@ -9,6 +9,7 @@ from app.routes import (
     dashboard,
     health,
     imports,
+    loans,
     net_worth,
     prices,
     rules,
@@ -38,3 +39,4 @@ app.include_router(snapshots.router)
 app.include_router(net_worth.router)
 app.include_router(securities.router)
 app.include_router(prices.router)
+app.include_router(loans.router)

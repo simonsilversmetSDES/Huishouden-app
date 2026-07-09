@@ -8,6 +8,7 @@ import Budget from './pages/Budget'
 import ComingSoon from './pages/ComingSoon'
 import Dashboard from './pages/Dashboard'
 import Import from './pages/Import'
+import Lening from './pages/Lening'
 import Login from './pages/Login'
 import Rules from './pages/Rules'
 import Transactions from './pages/Transactions'
@@ -57,6 +58,7 @@ export default function App() {
               <Route path="budget" element={<Budget />} />
               <Route path="vermogen" element={<Vermogen />} />
               <Route path="beleggingen" element={<Beleggingen />} />
+              <Route path="lening" element={<Lening />} />
             </Route>
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />

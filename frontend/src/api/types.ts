@@ -300,6 +300,128 @@ export interface SecurityPricePayload {
   price: string
 }
 
+// --- Lening & woning (spec §8) ---
+
+export interface LoanInvestment {
+  id: number
+  label: string
+  comment: string | null // bv. "50% van de aankoopprijs van de keuken"
+  added_value_cents: number
+}
+
+export interface LoanContribution {
+  id: number
+  context_id: number
+  amount_cents: number
+  context_name: string
+}
+
+export interface Loan {
+  id: number
+  context_id: number
+  name: string
+  principal_cents: number
+  annual_rate: string // exacte Decimal-string, bv. "0.0251"
+  term_months: number
+  start_date: string // ISO
+  monthly_payment_cents: number | null // null = berekend
+  property_value_paid_cents: number | null
+  property_base_value_cents: number | null
+  property_base_year: number | null
+  indexation_rate: string | null
+  investments: LoanInvestment[]
+  contributions: LoanContribution[]
+}
+
+export interface LoanKpis {
+  monthly_payment_cents: number
+  total_payment_cents: number
+  total_principal_cents: number
+  total_interest_cents: number
+  end_date: string
+  remaining_months: number
+  remaining_label: string
+  elapsed_pct: number
+  outstanding_cents: number
+  principal_paid_pct: number
+  paid_payment_cents: number
+  paid_principal_cents: number
+  paid_interest_cents: number
+  paid_payment_pct: number
+  paid_principal_pct: number
+  paid_interest_pct: number
+}
+
+export interface PropertyValuation {
+  estimate_cents: number
+  price_paid_cents: number
+  surplus_cents: number
+  surplus_pct: number | null
+  investments_total_cents: number
+  indexed_value_cents: number
+}
+
+export interface OwnerShare {
+  context_id: number
+  name: string
+  contribution_cents: number
+  equity_incl_surplus_cents: number
+  equity_excl_surplus_cents: number
+}
+
+export interface Ownership {
+  remaining_after_loan_cents: number
+  principal_paid_cents: number
+  surplus_cents: number
+  owners: OwnerShare[]
+  total_excl_surplus_cents: number
+  our_share_pct: number | null
+}
+
+export interface LoanScheduleRow {
+  n: number
+  date: string
+  payment_cents: number
+  interest_cents: number
+  principal_cents: number
+  balance_cents: number
+  paid: boolean
+}
+
+export interface LoanOverview {
+  loan: Loan
+  kpis: LoanKpis
+  valuation: PropertyValuation | null
+  ownership: Ownership | null
+  schedule: LoanScheduleRow[]
+}
+
+export interface LoanInvestmentPayload {
+  label: string
+  comment: string | null
+  added_value_cents: number
+}
+
+export interface LoanContributionPayload {
+  context_id: number
+  amount_cents: number
+}
+
+export interface LoanPayload {
+  name: string
+  principal_cents: number
+  annual_rate: string
+  term_months: number
+  start_date: string
+  monthly_payment_cents: number | null
+  property_value_paid_cents: number | null
+  property_base_value_cents: number | null
+  property_base_year: number | null
+  indexation_rate: string | null
+  investments: LoanInvestmentPayload[]
+  contributions: LoanContributionPayload[]
+}
+
 export interface PriceFetchResult {
   fetched: number
   failed: string[]
@@ -415,6 +537,7 @@ export interface Rule {
   category_name: string | null
   created_from_correction: boolean
   context_ids: number[] // entiteiten waarop de regel geldt (#9)
+  applicable_context_ids: number[] // entiteiten waar de categorie(naam) actief bestaat
 }
 
 export interface RulePayload {

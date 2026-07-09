@@ -63,6 +63,36 @@ export default function Rules() {
     }
   }
 
+  const [togglingId, setTogglingId] = useState<number | null>(null)
+
+  // Badge-klik in de tabel: entiteit aan/uit zetten zonder het bewerkformulier.
+  async function toggleContext(rule: Rule, ctxId: number) {
+    const has = rule.context_ids.includes(ctxId)
+    if (has && rule.context_ids.length === 1) return // minstens één entiteit
+    const next = has
+      ? rule.context_ids.filter((id) => id !== ctxId)
+      : [...rule.context_ids, ctxId]
+    const payload: RulePayload = {
+      context_id: rule.context_id,
+      match_field: rule.match_field,
+      match_type: rule.match_type,
+      match_value: rule.match_value,
+      category_id: rule.category_id,
+      priority: rule.priority,
+      created_from_correction: rule.created_from_correction,
+      context_ids: next,
+    }
+    setTogglingId(rule.id)
+    try {
+      await api<Rule>(`/api/rules/${rule.id}`, { method: 'PUT', body: JSON.stringify(payload) })
+      load()
+    } catch {
+      setError('Entiteit wijzigen mislukt — probeer opnieuw')
+    } finally {
+      setTogglingId(null)
+    }
+  }
+
   async function apply() {
     setApplyMsg(null)
     setApplying(true)
@@ -129,7 +159,14 @@ export default function Rules() {
               Nog geen regels voor deze context.
             </p>
           ) : (
-            <RuleTable rules={rules} contexts={contexts} onEdit={startEdit} onDelete={remove} />
+            <RuleTable
+              rules={rules}
+              contexts={contexts}
+              togglingId={togglingId}
+              onToggleContext={(rule, ctxId) => void toggleContext(rule, ctxId)}
+              onEdit={startEdit}
+              onDelete={remove}
+            />
           )}
         </section>
       )}
@@ -348,15 +385,18 @@ function RuleForm({
 function RuleTable({
   rules,
   contexts,
+  togglingId,
+  onToggleContext,
   onEdit,
   onDelete,
 }: {
   rules: Rule[]
   contexts: Context[]
+  togglingId: number | null
+  onToggleContext: (rule: Rule, ctxId: number) => void
   onEdit: (rule: Rule) => void
   onDelete: (rule: Rule) => void
 }) {
-  const nameById = new Map(contexts.map((c) => [c.id, c.name]))
   const showEntities = contexts.length > 1
   return (
     <table className="w-full min-w-[720px] text-sm">
@@ -389,13 +429,14 @@ function RuleTable({
             {showEntities && (
               <td className="px-3 py-2">
                 <span className="flex flex-wrap gap-1">
-                  {rule.context_ids.map((id) => (
-                    <span
-                      key={id}
-                      className="rounded-md bg-raised px-1.5 py-0.5 text-[11px] text-ink-2"
-                    >
-                      {nameById.get(id) ?? id}
-                    </span>
+                  {contexts.map((c) => (
+                    <ContextBadge
+                      key={c.id}
+                      rule={rule}
+                      context={c}
+                      busy={togglingId === rule.id}
+                      onToggle={() => onToggleContext(rule, c.id)}
+                    />
                   ))}
                 </span>
               </td>
@@ -418,5 +459,54 @@ function RuleTable({
         ))}
       </tbody>
     </table>
+  )
+}
+
+/** Klikbare 'geldt voor'-badge: aan = vol, uit = gestippeld/licht (klik zet aan),
+ * niet-toepasbaar (categorie bestaat er niet actief) = uitgegrijsd en niet klikbaar. */
+function ContextBadge({
+  rule,
+  context,
+  busy,
+  onToggle,
+}: {
+  rule: Rule
+  context: Context
+  busy: boolean
+  onToggle: () => void
+}) {
+  const applicable = rule.applicable_context_ids.includes(context.id)
+  const on = rule.context_ids.includes(context.id)
+  const lastOne = on && rule.context_ids.length === 1
+
+  if (!applicable) {
+    return (
+      <span
+        title={`Categorie "${rule.category_name ?? '?'}" bestaat niet (actief) bij ${context.name}`}
+        className="cursor-not-allowed rounded-md border border-dashed border-line px-1.5 py-0.5 text-[11px] text-ink-3 opacity-40"
+      >
+        {context.name}
+      </span>
+    )
+  }
+  return (
+    <button
+      onClick={onToggle}
+      disabled={busy || lastOne}
+      title={
+        lastOne
+          ? 'Minstens één entiteit vereist'
+          : on
+            ? `Klik om uit te schakelen bij ${context.name}`
+            : `Klik om in te schakelen bij ${context.name}`
+      }
+      className={`rounded-md px-1.5 py-0.5 text-[11px] transition-colors disabled:cursor-default ${
+        on
+          ? 'border border-transparent bg-raised text-ink-2 hover:bg-accent/15'
+          : 'border border-dashed border-edge text-ink-3 opacity-60 hover:border-accent hover:text-accent hover:opacity-100'
+      } ${busy ? 'opacity-40' : ''}`}
+    >
+      {context.name}
+    </button>
   )
 }

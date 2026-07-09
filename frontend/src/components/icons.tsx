@@ -79,11 +79,11 @@ export const IconCoins = svg(
   </>,
 )
 
-export const IconBank = svg(
+export const IconChartPie = svg(
   <>
-    <path d="M4 21h16" />
-    <path d="M5 21V10l7-5 7 5v11" />
-    <path d="M9.5 21v-6h5v6" />
+    <circle cx="12" cy="12" r="8.5" />
+    <path d="M12 3.5V12" />
+    <path d="M12 12l6.2 5.8" />
   </>,
 )
 
@@ -91,5 +91,13 @@ export const IconTrendingUp = svg(
   <>
     <path d="M3 17l6-6 4 4 8-8" />
     <path d="M17 7h4v4" />
+  </>,
+)
+
+export const IconHome = svg(
+  <>
+    <path d="M4 11.5 12 4l8 7.5" />
+    <path d="M5.5 10.5V20h13v-9.5" />
+    <path d="M10 20v-5h4v5" />
   </>,
 )

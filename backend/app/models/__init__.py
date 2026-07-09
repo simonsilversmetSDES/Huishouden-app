@@ -9,7 +9,7 @@ from app.models.investments import (
     SecuritySplit,
     SecurityTransaction,
 )
-from app.models.loans import Loan, LoanPayment
+from app.models.loans import Loan, LoanContribution, LoanPayment, PropertyInvestment
 from app.models.snapshots import AccountSnapshot, NetWorthSnapshot
 from app.models.transactions import CategorizationRule, Import, RuleContext, Transaction
 
@@ -32,4 +32,6 @@ __all__ = [
     "SecuritySplit",
     "Loan",
     "LoanPayment",
+    "PropertyInvestment",
+    "LoanContribution",
 ]

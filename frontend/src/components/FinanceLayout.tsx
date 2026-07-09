@@ -2,10 +2,11 @@ import { Link, NavLink, Outlet } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 import { useAppState } from '../state/AppState'
 import {
-  IconBank,
+  IconChartPie,
   IconCoins,
   IconGauge,
   IconGrid,
+  IconHome,
   IconReceipt,
   IconTrendingUp,
 } from './icons'
@@ -14,8 +15,9 @@ const NAV = [
   { to: '/financien', end: true, label: 'Dashboard', icon: IconGauge },
   { to: '/financien/transacties', end: false, label: 'Transacties', icon: IconReceipt },
   { to: '/financien/budget', end: false, label: 'Budget', icon: IconCoins },
-  { to: '/financien/vermogen', end: false, label: 'Vermogen', icon: IconBank },
+  { to: '/financien/vermogen', end: false, label: 'Vermogen', icon: IconChartPie },
   { to: '/financien/beleggingen', end: false, label: 'Beleggingen', icon: IconTrendingUp },
+  { to: '/financien/lening', end: false, label: 'Lening', icon: IconHome },
 ]
 
 export default function FinanceLayout() {

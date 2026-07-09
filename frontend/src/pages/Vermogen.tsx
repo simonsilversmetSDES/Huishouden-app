@@ -18,7 +18,6 @@ import type {
   AccountType,
   AssetClass,
   NetWorth,
-  NetWorthPayload,
   NetWorthRow,
   NetWorthSummary,
   Portfolio,
@@ -577,14 +576,6 @@ function NetWorthSection({ contextId }: { contextId: number }) {
             </div>
           </div>
 
-          {singleId !== null ? (
-            <NetWorthForm contextId={singleId} data={data} onSaved={load} />
-          ) : (
-            <p className="rounded-2xl border border-dashed border-edge bg-surface px-5 py-3 text-xs text-ink-3">
-              Woning-waarde bewerken kan per entiteit — selecteer één entiteit hierboven.
-            </p>
-          )}
-
           {rows.length > 0 && (
             <>
               <VermogenDonuts selectedIds={selectedIds} activaRows={donutRows} />
@@ -689,98 +680,8 @@ function VermogenDonuts({
   )
 }
 
-function NetWorthForm({
-  contextId,
-  data,
-  onSaved,
-}: {
-  contextId: number
-  data: NetWorth
-  onSaved: () => void
-}) {
-  const [month, setMonth] = useState(currentMonth)
-  const [amountText, setAmountText] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  const snapshotDate = `${month}-01`
-
-  // Prefill met de bestaande woning-waarde van de gekozen maand.
-  useEffect(() => {
-    const row = data.rows.find((r) => r.snapshot_date === snapshotDate)
-    const asset = row?.assets.find((a) => a.asset_class === 'woning')
-    setAmountText(asset ? formatCentsPlain(asset.value_cents) : '')
-  }, [snapshotDate, data])
-
-  async function submit(e: FormEvent) {
-    e.preventDefault()
-    const cents = parseEuroToCents(amountText)
-    if (cents === null) {
-      setError('Ongeldig bedrag')
-      return
-    }
-    setError(null)
-    setSaving(true)
-    const payload: NetWorthPayload = {
-      context_id: contextId,
-      snapshot_date: snapshotDate,
-      asset_class: 'woning',
-      value_cents: cents,
-    }
-    try {
-      await api<NetWorth>('/api/net-worth', { method: 'PUT', body: JSON.stringify(payload) })
-      onSaved()
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Opslaan mislukt — probeer opnieuw')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <form onSubmit={submit} className="rounded-2xl border border-edge bg-surface p-5">
-      <h3 className="text-sm font-medium">Woning-waarde invoeren of bijwerken</h3>
-      <p className="mt-1 text-xs text-ink-3">
-        De overige activaklassen worden automatisch afgeleid uit de rekeningstatus (contant,
-        pensioensparen, groepsverzekering) en de beleggingen (fondsen/ETF, aandelen, bitcoin).
-      </p>
-      <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        <label className="block">
-          <span className="mb-1 block text-xs uppercase tracking-wide text-ink-3">Maand</span>
-          <input
-            type="month"
-            value={month}
-            onChange={(e) => setMonth(e.target.value)}
-            className={inputClass}
-          />
-        </label>
-        <label className="block">
-          <span className="mb-1 block text-xs uppercase tracking-wide text-ink-3">
-            Waarde woning
-          </span>
-          <input
-            type="text"
-            inputMode="decimal"
-            placeholder="0,00"
-            value={amountText}
-            onChange={(e) => setAmountText(e.target.value)}
-            className={`${inputClass} text-right tabular-nums`}
-          />
-        </label>
-        <div className="flex items-end gap-3">
-          <button
-            type="submit"
-            disabled={saving}
-            className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent/85 disabled:opacity-50"
-          >
-            {saving ? 'Bezig…' : 'Opslaan'}
-          </button>
-        </div>
-      </div>
-      {error && <p className="mt-2 text-sm text-crit">{error}</p>}
-    </form>
-  )
-}
+// Het vroegere woning-invoerformulier is weg: de woning-waarde per persoon wordt
+// automatisch afgeleid uit de lening/woning-module (spec §8) — zie de Lening-tab.
 
 function NetWorthEvolution({ data, excludeWoning }: { data: NetWorth; excludeWoning: boolean }) {
   const [hidden, setHidden] = useState<Set<AssetClass>>(new Set())
