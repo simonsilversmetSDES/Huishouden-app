@@ -15,15 +15,17 @@ from sqlalchemy.orm import Session
 from app.models import Context, Security, SecurityPrice, SecuritySplit, SecurityTransaction
 from app.models.enums import SecuritySide
 from app.schemas.investments import RealizedYearOut
-from app.services.investments import build_portfolio, yearly_returns
+from app.services.investments import benchmark_yearly_returns, build_portfolio, yearly_returns
 
 
 def _context(db: Session, name: str = "Simon") -> Context:
     return db.scalars(select(Context).where(Context.name == name)).one()
 
 
-def _security(db: Session, ctx: Context, name: str, ticker: str | None = None) -> Security:
-    sec = Security(name=name, ticker=ticker, owner_context_id=ctx.id)
+def _security(
+    db: Session, ctx: Context, name: str, ticker: str | None = None, is_benchmark: bool = False
+) -> Security:
+    sec = Security(name=name, ticker=ticker, owner_context_id=ctx.id, is_benchmark=is_benchmark)
     db.add(sec)
     db.flush()
     return sec
@@ -239,3 +241,101 @@ class TestJaarrendement:
     def test_geen_transacties_geeft_lege_lijst(self, seeded_db: Session) -> None:
         ctx = _context(seeded_db)
         assert yearly_returns(seeded_db, ctx, today=date(2025, 12, 31)) == []
+
+    def test_waardering_voor_splitdatum_met_gecorrigeerde_koersen(self, seeded_db: Session) -> None:
+        # yfinance slaat koersen terugwerkend split-gecorrigeerd op (huidige eenheden).
+        # De waardering op een datum vóór de split moet het aantal dus óók in huidige
+        # eenheden nemen, anders wordt de positie een factor `ratio` te klein geteld.
+        # Scenario (echte SPDR-bug, 2025): koop 14 @ 250 in 2025 (totaal 3500);
+        # 25:1-split op 15/02/2026. Koersen in post-split eenheden: 10,00 eind 2025,
+        # 11,00 eind 2026. Eind 2025 = 14×25×10 = 3500 (niet 14×10 = 140).
+        # 2025: (3500 − 0 − 3500) / 3500 = 0 %. 2026: (3850 − 3500 − 0) / 3500 = +10 %.
+        ctx = _context(seeded_db)
+        sec = _security(seeded_db, ctx, "SPDR")
+        _tx(seeded_db, sec, date(2025, 1, 1), SecuritySide.BUY, "14", "250", "3500.00")
+        seeded_db.add(
+            SecuritySplit(security_id=sec.id, date=date(2026, 2, 15), ratio=Decimal("25"))
+        )
+        _price(seeded_db, sec, date(2025, 12, 31), "10")
+        _price(seeded_db, sec, date(2026, 12, 31), "11")
+        seeded_db.commit()
+
+        years = {y.year: y for y in yearly_returns(seeded_db, ctx, today=date(2026, 12, 31))}
+        assert years[2025].end_value_cents == 350000
+        assert years[2025].return_pct == pytest.approx(0.0, abs=1e-6)
+        assert years[2026].start_value_cents == 350000
+        assert years[2026].end_value_cents == 385000
+        assert years[2026].return_pct == pytest.approx(10.0, abs=1e-6)
+
+
+class TestBenchmark:
+    """Koersrendement (geen Modified Dietz) van het effect met `is_benchmark=True`,
+    als referentie naast het portefeuillerendement — spec §7-uitbreiding."""
+
+    def test_geen_effect_gemarkeerd_geeft_none(self, seeded_db: Session) -> None:
+        ctx = _context(seeded_db)
+        _security(seeded_db, ctx, "A")  # geen benchmark
+        seeded_db.commit()
+        assert benchmark_yearly_returns(seeded_db, ctx, [2025], today=date(2025, 12, 31)) is None
+
+    def test_koersrendement_over_twee_jaar(self, seeded_db: Session) -> None:
+        # Koers 100 → 110 → 130,9 over 2024/2025: +10 % en +19 %, zonder rekening
+        # te houden met wanneer/hoeveel er werd bijgestort (dat is net het verschil
+        # met yearly_returns).
+        ctx = _context(seeded_db)
+        sec = _security(seeded_db, ctx, "Wereldindex", is_benchmark=True)
+        _price(seeded_db, sec, date(2023, 12, 31), "100")
+        _price(seeded_db, sec, date(2024, 12, 31), "110")
+        _price(seeded_db, sec, date(2025, 12, 31), "130.9")
+        seeded_db.commit()
+
+        bench = benchmark_yearly_returns(seeded_db, ctx, [2024, 2025], today=date(2025, 12, 31))
+        assert bench is not None
+        assert bench.security_id == sec.id
+        assert bench.name == "Wereldindex"
+        years = {y.year: y for y in bench.years}
+        assert years[2024].complete is True
+        assert years[2024].return_pct == pytest.approx(10.0, abs=1e-6)
+        assert years[2025].complete is True
+        assert years[2025].return_pct == pytest.approx(19.0, abs=1e-6)
+
+    def test_koers_over_split_heen_niet_zelf_gecorrigeerd(self, seeded_db: Session) -> None:
+        # Net als _value_as_of elders vergelijkt dit de opgeslagen koers zonder eigen
+        # split-correctie: voor yfinance-tickers klopt dat, want yfinance geeft
+        # historische koersen al terug-aangepast voor latere splits (een koers van
+        # vóór de splitsdatum staat dus al in de huidige eenheden — zie de echte
+        # SPYI-data die dit gedrag opleverde). Bij een koers die dat zelf niét doet,
+        # zou dit jaar er onterecht dramatisch uitzien; dat is een bekende grens van
+        # deze (en de bestaande) berekening, geen bug in deze functie.
+        ctx = _context(seeded_db)
+        sec = _security(seeded_db, ctx, "SplitIndex", is_benchmark=True)
+        _price(seeded_db, sec, date(2024, 12, 31), "2500")
+        _price(seeded_db, sec, date(2025, 12, 31), "130")
+        seeded_db.add(SecuritySplit(security_id=sec.id, date=date(2025, 2, 1), ratio=Decimal("25")))
+        seeded_db.commit()
+
+        bench = benchmark_yearly_returns(seeded_db, ctx, [2025], today=date(2025, 12, 31))
+        assert bench is not None
+        assert bench.years[0].return_pct == pytest.approx(-94.8, abs=1e-6)
+
+    def test_ontbrekende_grens_koers_onvolledig(self, seeded_db: Session) -> None:
+        ctx = _context(seeded_db)
+        sec = _security(seeded_db, ctx, "Wereldindex", is_benchmark=True)
+        _price(seeded_db, sec, date(2025, 6, 1), "150")  # geen koers eind 2024/2025
+        seeded_db.commit()
+
+        bench = benchmark_yearly_returns(seeded_db, ctx, [2025], today=date(2025, 6, 1))
+        assert bench is not None
+        assert bench.years[0].complete is False
+        assert bench.years[0].return_pct is None
+
+    def test_build_portfolio_neemt_benchmark_mee(self, seeded_db: Session) -> None:
+        ctx = _context(seeded_db)
+        sec = _security(seeded_db, ctx, "Wereldindex", is_benchmark=True)
+        _tx(seeded_db, sec, date(2025, 1, 1), SecuritySide.BUY, "10", "100", "1000.00")
+        _price(seeded_db, sec, date(2025, 12, 31), "120")
+        seeded_db.commit()
+
+        pf = build_portfolio(seeded_db, ctx, today=date(2025, 12, 31))
+        assert pf.benchmark is not None
+        assert [y.year for y in pf.benchmark.years] == [y.year for y in pf.yearly_returns]

@@ -1,7 +1,7 @@
 from datetime import date
 from decimal import Decimal
 
-from sqlalchemy import Date, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import Boolean, Date, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base
@@ -22,6 +22,8 @@ class Security(Base):
     soort: Mapped[SecurityKind] = mapped_column(
         str_enum(SecurityKind, "security_kind"), default=SecurityKind.ETF_FONDSEN
     )
+    # Referentie-index voor de rendementsvergelijking in de Vermogen-tab (spec §7-uitbreiding).
+    is_benchmark: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 class SecurityTransaction(Base):

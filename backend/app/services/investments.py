@@ -27,6 +27,8 @@ from sqlalchemy.orm import Session
 from app.models import Context, Security, SecurityPrice, SecuritySplit, SecurityTransaction
 from app.models.enums import AssetClass, SecuritySide
 from app.schemas.investments import (
+    BenchmarkOut,
+    BenchmarkYearOut,
     PortfolioOut,
     PositionOut,
     RealizedGainOut,
@@ -202,30 +204,27 @@ def build_portfolio(db: Session, context: Context, today: date | None = None) ->
         realized_by_year=[
             RealizedYearOut(year=year, gain_cents=cents) for year, cents in sorted(by_year.items())
         ],
-        yearly_returns=yearly_returns(db, context, today),
+        yearly_returns=(returns := yearly_returns(db, context, today)),
+        benchmark=benchmark_yearly_returns(db, context, [y.year for y in returns], today),
     )
-
-
-def _split_factor_upto(splits: list[SecuritySplit], after: date, upto: date) -> Decimal:
-    """Cumulatieve split-factor voor transacties op `after`, gemeten op datum `upto`
-    (enkel splits die ná de transactie maar niet ná `upto` vielen)."""
-    factor = Decimal(1)
-    for split in splits:
-        if after < split.date <= upto:
-            factor *= split.ratio
-    return factor
 
 
 def _shares_as_of(
     txns: list[SecurityTransaction], splits: list[SecuritySplit], on: date
 ) -> Decimal:
-    """Aangehouden aantal op datum `on`, in de eenheden die op dat moment golden."""
+    """Aangehouden aantal op datum `on`, altijd in de huidige (post-split) eenheden.
+
+    Bewust niet "de eenheden die op dat moment golden": de opgeslagen koersreeks
+    volgt de yfinance-conventie en is terugwerkend split-gecorrigeerd (een koers
+    van vóór de splitsdatum staat al in de huidige eenheden). Waarde-op-datum =
+    aantal × koers klopt dus enkel als het aantal dezelfde eenheden gebruikt —
+    anders wordt een positie vóór de split een factor `ratio` te klein geteld."""
     shares = ZERO
     for tx in txns:
         if tx.date > on:
             continue
         signed = tx.shares if tx.side == SecuritySide.BUY else -tx.shares
-        shares += signed * _split_factor_upto(splits, tx.date, on)
+        shares += signed * _split_factor(splits, tx.date)
     return shares
 
 
@@ -338,6 +337,53 @@ def beleggingen_by_class_history(
         if totals:
             out[on] = totals
     return out
+
+
+def benchmark_yearly_returns(
+    db: Session, context: Context, years: list[int], today: date | None = None
+) -> BenchmarkOut | None:
+    """Koersrendement per kalenderjaar van het effect gemarkeerd als referentie-index
+    (`is_benchmark`), voor dezelfde jaren als `yearly_returns` (spec §7-uitbreiding).
+
+    In tegenstelling tot het portefeuillerendement is dit géén Modified Dietz: het is
+    puur koers-eind t.o.v. koers-begin, zodat het antwoord geeft op "wat deed de index",
+    los van wanneer er werd bijgestort.
+
+    Geen eigen split-correctie: net als `_value_as_of` elders wordt de opgeslagen koers
+    zonder aanpassing over de tijd vergeleken. Voor tickers die via yfinance ververst
+    worden (het gangbare geval voor een index-ETF) is dat correct, want yfinance geeft
+    historische slotkoersen terug-aangepast voor latere splits terug — een koers van
+    vóór de effectieve splitsdatum staat dus al in de huidige eenheden."""
+    if today is None:
+        today = date.today()
+
+    security = db.scalars(
+        select(Security)
+        .where(Security.owner_context_id == context.id, Security.is_benchmark.is_(True))
+        .order_by(Security.id)
+    ).first()
+    if security is None:
+        return None
+
+    _, _, prices_by_security = _load_tx_history(db, [security.id])
+    prices = prices_by_security.get(security.id, [])
+
+    out: list[BenchmarkYearOut] = []
+    for year in years:
+        period_start = date(year - 1, 12, 31)
+        is_current = year == today.year
+        period_end = today if is_current else date(year, 12, 31)
+
+        price_start = _price_as_of(prices, period_start, allow_stale=False)
+        price_end = _price_as_of(prices, period_end, allow_stale=is_current)
+        if price_start is None or price_end is None or price_start == ZERO:
+            out.append(BenchmarkYearOut(year=year, return_pct=None, complete=False))
+            continue
+
+        return_pct = float((price_end - price_start) / price_start * 100)
+        out.append(BenchmarkYearOut(year=year, return_pct=return_pct, complete=True))
+
+    return BenchmarkOut(security_id=security.id, name=security.name, years=out)
 
 
 def yearly_returns(

@@ -19,6 +19,7 @@ class SecurityIn(BaseModel):
     isin: str | None = None
     owner_context_id: int
     soort: SecurityKind = SecurityKind.ETF_FONDSEN
+    is_benchmark: bool = False  # gebruik dit effect als referentie-index (spec §7-uitbreiding)
 
 
 class SecurityOut(BaseModel):
@@ -28,6 +29,7 @@ class SecurityOut(BaseModel):
     isin: str | None
     owner_context_id: int
     soort: SecurityKind
+    is_benchmark: bool
     suggested_ticker: str | None = None  # afgeleid uit de naam wanneer ticker leeg is
 
 
@@ -134,6 +136,20 @@ class YearReturnOut(BaseModel):
     complete: bool  # False → return_pct is None wegens ontbrekende jaargrens-koers
 
 
+class BenchmarkYearOut(BaseModel):
+    """Koersrendement (geen Modified Dietz) van de referentie-index over één jaar."""
+
+    year: int
+    return_pct: float | None  # None = geen jaargrens-koers binnen tolerantie
+    complete: bool
+
+
+class BenchmarkOut(BaseModel):
+    security_id: int
+    name: str  # naam van het effect dat als referentie-index is gemarkeerd
+    years: list[BenchmarkYearOut]
+
+
 class PortfolioOut(BaseModel):
     context_id: int
     positions: list[PositionOut]
@@ -144,3 +160,4 @@ class PortfolioOut(BaseModel):
     realized_gains: list[RealizedGainOut]
     realized_by_year: list[RealizedYearOut]
     yearly_returns: list[YearReturnOut]
+    benchmark: BenchmarkOut | None = None

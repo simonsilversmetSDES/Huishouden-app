@@ -30,17 +30,37 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 def _start_dates(db) -> dict[int, date]:  # type: ignore[no-untyped-def]
-    """Eerste transactiedatum per effect (startpunt voor de historiek)."""
+    """Eerste transactiedatum per effect (startpunt voor de historiek).
+
+    Een referentie-index (`is_benchmark`) krijgt een vroeger startpunt: december
+    vóór het eerste transactiejaar van zijn context. Zo bestaat er een koers op
+    élke jaargrens die het jaarrendement toont, en is de referentie-kolom niet
+    "onvolledig" voor jaren waarin het effect zelf nog niet gekocht was."""
     from sqlalchemy import func, select
 
-    from app.models import SecurityTransaction
+    from app.models import Security, SecurityTransaction
 
     rows = db.execute(
         select(SecurityTransaction.security_id, func.min(SecurityTransaction.date)).group_by(
             SecurityTransaction.security_id
         )
     ).all()
-    return {security_id: first for security_id, first in rows}
+    starts = {security_id: first for security_id, first in rows}
+
+    first_by_context = db.execute(
+        select(Security.owner_context_id, func.min(SecurityTransaction.date))
+        .join(Security, Security.id == SecurityTransaction.security_id)
+        .group_by(Security.owner_context_id)
+    ).all()
+    context_first = {context_id: first for context_id, first in first_by_context}
+    for sec in db.scalars(select(Security).where(Security.is_benchmark.is_(True))):
+        first = context_first.get(sec.owner_context_id)
+        if first is None:
+            continue
+        bench_start = date(first.year - 1, 12, 1)  # dekt de jaargrens binnen de tolerantie
+        current = starts.get(sec.id)
+        starts[sec.id] = bench_start if current is None else min(current, bench_start)
+    return starts
 
 
 def inspect(db_url: str | None) -> None:

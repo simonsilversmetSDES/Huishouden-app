@@ -36,6 +36,7 @@ def _security_out(security: Security) -> SecurityOut:
         isin=security.isin,
         owner_context_id=security.owner_context_id,
         soort=security.soort,
+        is_benchmark=security.is_benchmark,
         suggested_ticker=suggest_ticker(security.name) if not security.ticker else None,
     )
 
@@ -45,6 +46,17 @@ def _get_context(db: Session, context_id: int) -> Context:
     if context is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Onbekende context")
     return context
+
+
+def _clear_other_benchmarks(db: Session, context_id: int, exclude_id: int | None) -> None:
+    """Maximaal één referentie-index per context — een nieuwe markering vervangt de vorige."""
+    query = select(Security).where(
+        Security.owner_context_id == context_id, Security.is_benchmark.is_(True)
+    )
+    if exclude_id is not None:
+        query = query.where(Security.id != exclude_id)
+    for other in db.scalars(query):
+        other.is_benchmark = False
 
 
 def _get_security(db: Session, security_id: int) -> Security:
@@ -108,12 +120,15 @@ def create_security(
     _get_context(db, body.owner_context_id)
     if not body.name.strip():
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Naam is leeg")
+    if body.is_benchmark:
+        _clear_other_benchmarks(db, body.owner_context_id, exclude_id=None)
     security = Security(
         name=body.name.strip(),
         ticker=(body.ticker or None),
         isin=(body.isin or None),
         owner_context_id=body.owner_context_id,
         soort=body.soort,
+        is_benchmark=body.is_benchmark,
     )
     db.add(security)
     db.commit()
@@ -132,10 +147,13 @@ def update_security(
         raise HTTPException(
             status.HTTP_422_UNPROCESSABLE_CONTENT, detail="De context van een effect is vast"
         )
+    if body.is_benchmark:
+        _clear_other_benchmarks(db, security.owner_context_id, exclude_id=security.id)
     security.name = body.name.strip()
     security.ticker = body.ticker or None
     security.isin = body.isin or None
     security.soort = body.soort
+    security.is_benchmark = body.is_benchmark
     db.commit()
     return _security_out(security)
 

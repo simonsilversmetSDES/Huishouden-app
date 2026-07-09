@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.config import Settings, get_settings
 from app.main import app
 from app.models import Context, Security, SecurityPrice
-from app.services.prices import _nearest_rate, to_eur
+from app.services.prices import _fetch_history_one, _nearest_rate, to_eur
 
 
 class TestToEur:
@@ -49,6 +49,43 @@ class TestNearestRate:
 
     def test_lege_historiek(self) -> None:
         assert _nearest_rate({}, date(2025, 1, 1)) is None
+
+
+class TestFetchHistoryOne:
+    """Historiek-parsing zonder netwerk: yfinance geeft voor de lopende beursdag
+    soms een rij met NaN als slotkoers — die mag de hele ticker niet doen falen
+    (Decimal('nan') > 0 gooit InvalidOperation)."""
+
+    class _FakeTicker:
+        def __init__(self, hist) -> None:  # type: ignore[no-untyped-def]
+            self._hist = hist
+            self.fast_info = {"currency": "EUR"}
+
+        def history(self, **_kwargs):  # type: ignore[no-untyped-def]
+            return self._hist
+
+    class _FakeYfinance:
+        def __init__(self, hist) -> None:  # type: ignore[no-untyped-def]
+            self._hist = hist
+
+        def Ticker(self, _symbol: str):  # type: ignore[no-untyped-def]  # noqa: N802
+            return TestFetchHistoryOne._FakeTicker(self._hist)
+
+    def test_nan_slotkoers_overgeslagen(self) -> None:
+        import pandas as pd
+
+        hist = pd.DataFrame(
+            {"Close": [10.5, float("nan"), 11.0]},
+            index=pd.to_datetime(["2026-07-07", "2026-07-08", "2026-07-09"]),
+        )
+        closes, currency = _fetch_history_one(
+            self._FakeYfinance(hist), "SPYI.DE", date(2026, 7, 7), date(2026, 7, 9)
+        )
+        assert currency == "EUR"
+        assert closes == {
+            date(2026, 7, 7): Decimal("10.5"),
+            date(2026, 7, 9): Decimal("11.0"),
+        }
 
 
 def _security(db: Session, name: str = "IWDA", ticker: str | None = "IWDA") -> Security:

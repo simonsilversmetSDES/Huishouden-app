@@ -170,7 +170,9 @@ def _fetch_history_one(
     closes: dict[date, Decimal] = {}
     if hist is not None and not hist.empty:
         for timestamp, raw in hist["Close"].items():
-            if raw is None:
+            # NaN (lopende beursdag zonder slot) overslaan: Decimal('nan') > 0
+            # gooit InvalidOperation en zou de hele ticker doen falen.
+            if raw is None or raw != raw:
                 continue
             price = Decimal(str(raw))
             if price > 0:
