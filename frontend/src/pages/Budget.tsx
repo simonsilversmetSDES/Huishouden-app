@@ -1,7 +1,14 @@
-import { useCallback, useEffect, useState, type DragEvent, type KeyboardEvent } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from 'react'
 import { api, ApiError } from '../api/client'
 import type { BudgetCellUpdate, BudgetMatrix, Category, CategoryPayload, CategoryType } from '../api/types'
-import { formatCentsPlain, MAAND_KORT, parseEuroToCents } from '../lib/format'
+import { formatCentsWhole, MAAND_KORT, parseEuroToCents } from '../lib/format'
 import { useAppState } from '../state/AppState'
 
 export default function Budget() {
@@ -111,20 +118,25 @@ export default function Budget() {
         </div>
       )}
 
+      {/* De matrix breekt uit de smalle paginakolom zodat de 12 maanden op een
+          desktop volledig zichtbaar zijn; op smalle schermen scrolt ze horizontaal. */}
       {!error && matrix && (
-        <MatrixTable
-          matrix={matrix}
-          year={year}
-          onSave={save}
-          onAddCategory={addCategory}
-          onDeleteCategory={deleteCategory}
-        />
+        <div className="relative left-1/2 w-[94vw] max-w-[1440px] -translate-x-1/2">
+          <MatrixTable
+            matrix={matrix}
+            year={year}
+            onSave={save}
+            onAddCategory={addCategory}
+            onDeleteCategory={deleteCategory}
+          />
+        </div>
       )}
       {!error && !matrix && <p className="py-12 text-center text-sm text-ink-3">Laden…</p>}
 
       <p className="text-xs text-ink-3">
-        Klik een cel om te bewerken · Enter = opslaan · Esc = annuleren · Ctrl+Enter = waarde
-        doortrekken t/m december · sleep een bedrag naar een andere cel om het te verplaatsen
+        Klik een cel om te bewerken · sleep of Shift/Ctrl-klik om meerdere cellen te
+        selecteren · typ een bedrag en <strong>Ctrl+Enter</strong> vult alle geselecteerde
+        cellen · <strong>Delete</strong> wist de selectie · Enter = opslaan · Esc = annuleren
       </p>
     </div>
   )
@@ -138,10 +150,259 @@ interface MatrixTableProps {
   onDeleteCategory: (id: number, name: string) => void
 }
 
+const cellKey = (categoryId: number, month: number) => `${categoryId}:${month}`
+
 function MatrixTable({ matrix, year, onSave, onAddCategory, onDeleteCategory }: MatrixTableProps) {
+  // Vlakke, geordende lijst van categorie-id's (voor rechthoekige bereikselectie) +
+  // de centen per cel (om een editor met de juiste beginwaarde te openen).
+  const { orderedCats, rowIndexByCat, centsByKey } = useMemo(() => {
+    const orderedCats: number[] = []
+    const rowIndexByCat = new Map<number, number>()
+    const centsByKey = new Map<string, number>()
+    for (const group of matrix.groups) {
+      for (const row of group.categories) {
+        rowIndexByCat.set(row.category_id, orderedCats.length)
+        orderedCats.push(row.category_id)
+        row.month_cents.forEach((cents, i) =>
+          centsByKey.set(cellKey(row.category_id, i + 1), cents),
+        )
+      }
+    }
+    return { orderedCats, rowIndexByCat, centsByKey }
+  }, [matrix])
+
+  const [selected, setSelected] = useState<Set<string>>(() => new Set())
+  const [editing, setEditing] = useState<{ categoryId: number; month: number } | null>(null)
+  const [editText, setEditText] = useState('')
+  const [invalid, setInvalid] = useState(false)
+  const [busy, setBusy] = useState(false)
+
+  // Refs met de laatste waarden voor de globale toets-/muishandlers (één keer geregistreerd).
+  const anchorRef = useRef<{ row: number; month: number } | null>(null)
+  const draggingRef = useRef(false)
+  const movedRef = useRef(false)
+  const skipBlurRef = useRef(false)
+  const selectedRef = useRef(selected)
+  selectedRef.current = selected
+  const editingRef = useRef(editing)
+  editingRef.current = editing
+  const centsRef = useRef(centsByKey)
+  centsRef.current = centsByKey
+  const orderedRef = useRef(orderedCats)
+  orderedRef.current = orderedCats
+
+  const rectKeys = useCallback(
+    (aRow: number, aMonth: number, bRow: number, bMonth: number): Set<string> => {
+      const r1 = Math.min(aRow, bRow)
+      const r2 = Math.max(aRow, bRow)
+      const m1 = Math.min(aMonth, bMonth)
+      const m2 = Math.max(aMonth, bMonth)
+      const set = new Set<string>()
+      for (let r = r1; r <= r2; r++) {
+        for (let m = m1; m <= m2; m++) set.add(cellKey(orderedRef.current[r], m))
+      }
+      return set
+    },
+    [],
+  )
+
+  const openEditor = useCallback((categoryId: number, month: number, initialText?: string) => {
+    const cents = centsRef.current.get(cellKey(categoryId, month)) ?? 0
+    setEditText(initialText ?? (cents !== 0 ? String(Math.round(cents / 100)) : ''))
+    setInvalid(false)
+    setEditing({ categoryId, month })
+  }, [])
+
+  const closeEditor = useCallback((key: string) => {
+    setEditing((cur) => (cur && cellKey(cur.categoryId, cur.month) === key ? null : cur))
+  }, [])
+
+  // Slaat één (heel-euro) bedrag op naar de gegeven cellen. Geeft succes terug.
+  const commit = useCallback(
+    async (keys: string[], text: string): Promise<boolean> => {
+      const parsed = parseEuroToCents(text)
+      if (parsed === null) {
+        setInvalid(true)
+        return false
+      }
+      const whole = Math.round(parsed / 100) * 100
+      setBusy(true)
+      try {
+        await onSave(
+          keys.map((k) => {
+            const [cid, m] = k.split(':').map(Number)
+            return { category_id: cid, year, month: m, amount_cents: whole }
+          }),
+        )
+        return true
+      } catch {
+        setInvalid(true)
+        return false
+      } finally {
+        setBusy(false)
+      }
+    },
+    [onSave, year],
+  )
+
+  const clearCells = useCallback(
+    async (keys: string[]) => {
+      if (keys.length === 0) return
+      setBusy(true)
+      try {
+        await onSave(
+          keys.map((k) => {
+            const [cid, m] = k.split(':').map(Number)
+            return { category_id: cid, year, month: m, amount_cents: 0 }
+          }),
+        )
+      } finally {
+        setBusy(false)
+      }
+    },
+    [onSave, year],
+  )
+
+  function onCellMouseDown(
+    categoryId: number,
+    month: number,
+    e: React.MouseEvent<HTMLTableCellElement>,
+  ) {
+    const row = rowIndexByCat.get(categoryId)
+    if (row === undefined) return
+    if (e.shiftKey && anchorRef.current) {
+      e.preventDefault()
+      setSelected(rectKeys(anchorRef.current.row, anchorRef.current.month, row, month))
+      return
+    }
+    if (e.metaKey || e.ctrlKey) {
+      e.preventDefault()
+      const key = cellKey(categoryId, month)
+      setSelected((prev) => {
+        const next = new Set(prev)
+        if (next.has(key)) next.delete(key)
+        else next.add(key)
+        return next
+      })
+      anchorRef.current = { row, month }
+      return
+    }
+    // Gewone klik: mogelijk begin van een sleep-selectie; bij loslaten zonder
+    // beweging openen we de editor (klik = bewerken).
+    anchorRef.current = { row, month }
+    draggingRef.current = true
+    movedRef.current = false
+    setSelected(new Set([cellKey(categoryId, month)]))
+  }
+
+  function onCellMouseEnter(categoryId: number, month: number) {
+    if (!draggingRef.current || !anchorRef.current) return
+    const row = rowIndexByCat.get(categoryId)
+    if (row === undefined) return
+    movedRef.current = true
+    setSelected(rectKeys(anchorRef.current.row, anchorRef.current.month, row, month))
+  }
+
+  // Muis loslaten (waar dan ook): sleep beëindigen; een klik zonder beweging → editor.
+  useEffect(() => {
+    function onUp() {
+      if (!draggingRef.current) return
+      draggingRef.current = false
+      // Klik zonder sleepbeweging → editor openen (een lopende commit van een andere
+      // cel sluit zichzelf via closeEditor op key, dus geen conflict).
+      if (!movedRef.current && anchorRef.current) {
+        const cid = orderedRef.current[anchorRef.current.row]
+        if (cid !== undefined) openEditor(cid, anchorRef.current.month)
+      }
+    }
+    window.addEventListener('mouseup', onUp)
+    return () => window.removeEventListener('mouseup', onUp)
+  }, [openEditor])
+
+  // Typen op een selectie zonder open editor: opent de editor op de anker-cel met de
+  // ingetypte toets; Delete/Backspace wist de selectie; Esc heft de selectie op.
+  useEffect(() => {
+    function onKey(e: globalThis.KeyboardEvent) {
+      if (editingRef.current !== null) return
+      const sel = selectedRef.current
+      if (sel.size === 0) return
+      const el = document.activeElement
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) return
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        e.preventDefault()
+        void clearCells([...sel])
+        return
+      }
+      if (e.key === 'Escape') {
+        setSelected(new Set())
+        return
+      }
+      const anchor = anchorRef.current
+      if (!anchor) return
+      const cid = orderedRef.current[anchor.row]
+      if (cid === undefined) return
+      if (/^[0-9]$/.test(e.key) || e.key === '-') {
+        e.preventDefault()
+        openEditor(cid, anchor.month, e.key)
+      } else if (e.key === 'Enter') {
+        e.preventDefault()
+        openEditor(cid, anchor.month)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [openEditor, clearCells])
+
+  function onEditKeyDown(e: KeyboardEvent<HTMLInputElement>) {
+    if (!editing) return
+    const key = cellKey(editing.categoryId, editing.month)
+    if (e.key === 'Enter') {
+      e.preventDefault()
+      skipBlurRef.current = true
+      const targets = e.ctrlKey || e.metaKey ? [...selectedRef.current] : [key]
+      void commit(targets.length ? targets : [key], editText).then((ok) => {
+        if (ok) closeEditor(key)
+        else skipBlurRef.current = false
+      })
+    } else if (e.key === 'Escape') {
+      e.preventDefault()
+      skipBlurRef.current = true
+      closeEditor(key)
+    }
+  }
+
+  function onEditBlur() {
+    if (skipBlurRef.current) {
+      skipBlurRef.current = false
+      return
+    }
+    if (!editing) return
+    const key = cellKey(editing.categoryId, editing.month)
+    void commit([key], editText).then((ok) => {
+      if (ok) closeEditor(key)
+    })
+  }
+
+  const cellCtrl: CellController = {
+    isSelected: (cid, m) => selected.has(cellKey(cid, m)),
+    isEditing: (cid, m) => editing?.categoryId === cid && editing.month === m,
+    editText,
+    invalid,
+    busy,
+    multiCount: selected.size,
+    onCellMouseDown,
+    onCellMouseEnter,
+    onEditChange: (v) => {
+      setEditText(v)
+      setInvalid(false)
+    },
+    onEditKeyDown,
+    onEditBlur,
+  }
+
   return (
     <div className="overflow-x-auto rounded-2xl border border-edge bg-surface">
-      <table className="w-full min-w-[980px] border-collapse text-sm">
+      <table className="w-full min-w-[760px] select-none border-collapse text-sm">
         <thead>
           <tr className="text-xs text-ink-3">
             <th className="sticky left-0 z-10 bg-surface px-4 py-3 text-left font-medium">
@@ -162,7 +423,7 @@ function MatrixTable({ matrix, year, onSave, onAddCategory, onDeleteCategory }: 
             </td>
             {matrix.to_be_allocated_cents.map((cents, i) => (
               <td key={i} className={`px-2 py-2.5 text-right ${tbaClass(cents)}`}>
-                {formatCentsPlain(cents)}
+                {formatCentsWhole(cents)}
               </td>
             ))}
             <td
@@ -170,7 +431,7 @@ function MatrixTable({ matrix, year, onSave, onAddCategory, onDeleteCategory }: 
                 matrix.to_be_allocated_total_cents,
               )}`}
             >
-              {formatCentsPlain(matrix.to_be_allocated_total_cents)}
+              {formatCentsWhole(matrix.to_be_allocated_total_cents)}
             </td>
           </tr>
 
@@ -178,8 +439,7 @@ function MatrixTable({ matrix, year, onSave, onAddCategory, onDeleteCategory }: 
             <GroupRows
               key={group.type}
               group={group}
-              year={year}
-              onSave={onSave}
+              ctrl={cellCtrl}
               onAddCategory={onAddCategory}
               onDeleteCategory={onDeleteCategory}
             />
@@ -196,16 +456,32 @@ function tbaClass(cents: number): string {
   return 'text-ink-3'
 }
 
+interface CellController {
+  isSelected: (categoryId: number, month: number) => boolean
+  isEditing: (categoryId: number, month: number) => boolean
+  editText: string
+  invalid: boolean
+  busy: boolean
+  multiCount: number
+  onCellMouseDown: (
+    categoryId: number,
+    month: number,
+    e: React.MouseEvent<HTMLTableCellElement>,
+  ) => void
+  onCellMouseEnter: (categoryId: number, month: number) => void
+  onEditChange: (value: string) => void
+  onEditKeyDown: (e: KeyboardEvent<HTMLInputElement>) => void
+  onEditBlur: () => void
+}
+
 function GroupRows({
   group,
-  year,
-  onSave,
+  ctrl,
   onAddCategory,
   onDeleteCategory,
 }: {
   group: BudgetMatrix['groups'][number]
-  year: number
-  onSave: (items: BudgetCellUpdate[]) => Promise<void>
+  ctrl: CellController
   onAddCategory: (type: CategoryType, name: string) => Promise<boolean>
   onDeleteCategory: (id: number, name: string) => void
 }) {
@@ -235,17 +511,16 @@ function GroupRows({
             </div>
           </td>
           {row.month_cents.map((cents, monthIdx) => (
-            <EditableCell
+            <Cell
               key={monthIdx}
               categoryId={row.category_id}
-              year={year}
               month={monthIdx + 1}
               cents={cents}
-              onSave={onSave}
+              ctrl={ctrl}
             />
           ))}
           <td className="px-4 py-1 text-right text-ink-2">
-            {row.total_cents !== 0 ? formatCentsPlain(row.total_cents) : ''}
+            {row.total_cents !== 0 ? formatCentsWhole(row.total_cents) : ''}
           </td>
         </tr>
       ))}
@@ -256,14 +531,65 @@ function GroupRows({
         </td>
         {group.monthly_total_cents.map((cents, i) => (
           <td key={i} className="px-2 py-2 text-right text-xs text-ink-3">
-            {cents !== 0 ? formatCentsPlain(cents) : ''}
+            {cents !== 0 ? formatCentsWhole(cents) : ''}
           </td>
         ))}
         <td className="px-4 py-2 text-right text-xs text-ink-3">
-          {formatCentsPlain(group.total_cents)}
+          {formatCentsWhole(group.total_cents)}
         </td>
       </tr>
     </>
+  )
+}
+
+function Cell({
+  categoryId,
+  month,
+  cents,
+  ctrl,
+}: {
+  categoryId: number
+  month: number
+  cents: number
+  ctrl: CellController
+}) {
+  const selected = ctrl.isSelected(categoryId, month)
+  const editing = ctrl.isEditing(categoryId, month)
+
+  if (editing) {
+    return (
+      <td className="p-0">
+        <input
+          autoFocus
+          value={ctrl.editText}
+          disabled={ctrl.busy}
+          onChange={(e) => ctrl.onEditChange(e.target.value)}
+          onKeyDown={ctrl.onEditKeyDown}
+          onBlur={ctrl.onEditBlur}
+          aria-invalid={ctrl.invalid}
+          title={
+            ctrl.multiCount > 1
+              ? `Ctrl+Enter vult ${ctrl.multiCount} cellen`
+              : undefined
+          }
+          className={`w-full rounded border bg-page px-2 py-1 text-right focus:outline-none ${
+            ctrl.invalid ? 'border-crit' : 'border-accent'
+          } ${ctrl.busy ? 'opacity-50' : ''}`}
+        />
+      </td>
+    )
+  }
+
+  return (
+    <td
+      onMouseDown={(e) => ctrl.onCellMouseDown(categoryId, month, e)}
+      onMouseEnter={() => ctrl.onCellMouseEnter(categoryId, month)}
+      className={`cursor-cell px-2 py-1 text-right transition-colors ${
+        selected ? 'bg-accent/15 ring-1 ring-inset ring-accent' : 'hover:bg-raised'
+      }`}
+    >
+      {cents !== 0 ? formatCentsWhole(cents) : <span className="text-ink-3">·</span>}
+    </td>
   )
 }
 
@@ -331,150 +657,5 @@ function AddCategoryRow({
         )}
       </td>
     </tr>
-  )
-}
-
-function EditableCell({
-  categoryId,
-  year,
-  month,
-  cents,
-  onSave,
-}: {
-  categoryId: number
-  year: number
-  month: number
-  cents: number
-  onSave: (items: BudgetCellUpdate[]) => Promise<void>
-}) {
-  const [editing, setEditing] = useState(false)
-  const [text, setText] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [invalid, setInvalid] = useState(false)
-  const [dragOver, setDragOver] = useState(false)
-
-  // Verslepen: bedrag verhuist van bron- naar doelcel (bron wordt leeg, doel overschreven).
-  async function onDrop(e: DragEvent<HTMLTableCellElement>) {
-    e.preventDefault()
-    setDragOver(false)
-    const raw = e.dataTransfer.getData('application/x-budget-cell')
-    if (!raw) return
-    let src: { categoryId: number; month: number; cents: number }
-    try {
-      src = JSON.parse(raw)
-    } catch {
-      return
-    }
-    if (src.cents === 0) return
-    if (src.categoryId === categoryId && src.month === month) return // zelfde cel
-    setBusy(true)
-    try {
-      await onSave([
-        { category_id: categoryId, year, month, amount_cents: src.cents },
-        { category_id: src.categoryId, year, month: src.month, amount_cents: 0 },
-      ])
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  function start() {
-    setText(cents !== 0 ? formatCentsPlain(cents) : '')
-    setInvalid(false)
-    setEditing(true)
-  }
-
-  async function commit(fillToDecember: boolean) {
-    const parsed = parseEuroToCents(text)
-    if (parsed === null) {
-      setInvalid(true)
-      return
-    }
-    if (parsed === cents && !fillToDecember) {
-      setEditing(false)
-      return
-    }
-    const months = fillToDecember
-      ? Array.from({ length: 13 - month }, (_, i) => month + i)
-      : [month]
-    setBusy(true)
-    try {
-      await onSave(
-        months.map((m) => ({
-          category_id: categoryId,
-          year,
-          month: m,
-          amount_cents: parsed,
-        })),
-      )
-      setEditing(false)
-    } catch {
-      setInvalid(true)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  function onKeyDown(e: KeyboardEvent<HTMLInputElement>) {
-    if (e.key === 'Enter') {
-      e.preventDefault()
-      void commit(e.ctrlKey)
-    } else if (e.key === 'Escape') {
-      setEditing(false)
-    }
-  }
-
-  if (!editing) {
-    return (
-      <td
-        className={`p-0 text-right transition-colors ${
-          dragOver ? 'bg-accent/15 ring-1 ring-inset ring-accent' : ''
-        }`}
-        onDragOver={(e) => {
-          e.preventDefault()
-          e.dataTransfer.dropEffect = 'move'
-          setDragOver(true)
-        }}
-        onDragLeave={() => setDragOver(false)}
-        onDrop={(e) => void onDrop(e)}
-      >
-        <button
-          onClick={start}
-          draggable={cents !== 0}
-          onDragStart={(e) => {
-            e.dataTransfer.effectAllowed = 'move'
-            e.dataTransfer.setData(
-              'application/x-budget-cell',
-              JSON.stringify({ categoryId, month, cents }),
-            )
-          }}
-          className={`block w-full rounded px-2 py-1 text-right hover:bg-raised focus:outline-none focus-visible:ring-1 focus-visible:ring-accent ${
-            cents !== 0 ? 'cursor-grab active:cursor-grabbing' : ''
-          } ${busy ? 'opacity-50' : ''}`}
-        >
-          {cents !== 0 ? formatCentsPlain(cents) : <span className="text-ink-3">·</span>}
-        </button>
-      </td>
-    )
-  }
-
-  return (
-    <td className="p-0">
-      <input
-        autoFocus
-        value={text}
-        disabled={busy}
-        onChange={(e) => {
-          setText(e.target.value)
-          setInvalid(false)
-        }}
-        onKeyDown={onKeyDown}
-        onBlur={() => void commit(false)}
-        aria-invalid={invalid}
-        className={`w-full rounded border bg-page px-2 py-1 text-right focus:outline-none ${
-          invalid ? 'border-crit' : 'border-accent'
-        } ${busy ? 'opacity-50' : ''}`}
-      />
-    </td>
   )
 }

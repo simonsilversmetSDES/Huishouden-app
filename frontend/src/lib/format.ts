@@ -11,6 +11,10 @@ const plain = new Intl.NumberFormat('nl-BE', {
   maximumFractionDigits: 2,
 })
 
+const plainWhole = new Intl.NumberFormat('nl-BE', {
+  maximumFractionDigits: 0,
+})
+
 const datum = new Intl.DateTimeFormat('nl-BE', {
   day: '2-digit',
   month: '2-digit',
@@ -42,6 +46,12 @@ export function formatCents(cents: number): string {
 /** Formatteert integer-centen als "1.234,56" (zonder €-teken, voor tabelcellen). */
 export function formatCentsPlain(cents: number): string {
   return plain.format(cents / 100)
+}
+
+/** Formatteert integer-centen als "1.234" — afgerond op hele euro's, geen decimalen
+ * (voor de budgetmatrix). */
+export function formatCentsWhole(cents: number): string {
+  return plainWhole.format(Math.round(cents / 100))
 }
 
 /** Formatteert een ISO-datum ("2026-07-05") als "05/07/2026". */
