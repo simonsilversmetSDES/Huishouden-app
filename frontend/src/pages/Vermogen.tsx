@@ -20,7 +20,6 @@ import type {
   NetWorth,
   NetWorthRow,
   NetWorthSummary,
-  Portfolio,
 } from '../api/types'
 import DonutCard from '../components/DonutCard'
 import { ASSET_CLASS_COLORS, ASSET_CLASS_LABEL, seriesColor } from '../lib/chartColors'
@@ -70,15 +69,21 @@ export default function Vermogen() {
 }
 
 function AccountStatusSection({ contextId }: { contextId: number }) {
+  const { contexts } = useAppState()
+  const [activeId, setActiveId] = useState(contextId)
   const [status, setStatus] = useState<AccountStatus | null>(null)
   const [error, setError] = useState<string | null>(null)
 
+  // Volgt de default-context als startpunt, maar blijft nadien onafhankelijk
+  // instelbaar — de rekeningen/standen zijn immers per entiteit.
+  useEffect(() => setActiveId(contextId), [contextId])
+
   const load = useCallback(() => {
     setError(null)
-    api<AccountStatus>(`/api/account-snapshots?context_id=${contextId}`)
+    api<AccountStatus>(`/api/account-snapshots?context_id=${activeId}`)
       .then(setStatus)
       .catch(() => setError('Rekeningstatus laden mislukt — probeer opnieuw'))
-  }, [contextId])
+  }, [activeId])
 
   useEffect(load, [load])
 
@@ -86,6 +91,27 @@ function AccountStatusSection({ contextId }: { contextId: number }) {
     <section>
       <details className="space-y-4">
         <summary className="cursor-pointer text-base font-medium">Rekeningstatus</summary>
+
+      {contexts.length > 1 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-xs text-ink-3">Entiteit:</span>
+          {contexts.map((c) => (
+            <button
+              key={c.id}
+              type="button"
+              onClick={() => setActiveId(c.id)}
+              aria-pressed={c.id === activeId}
+              className={`rounded-lg border px-3 py-1 text-xs font-medium transition-colors ${
+                c.id === activeId
+                  ? 'border-accent bg-accent text-white'
+                  : 'border-edge text-ink-3 hover:text-ink-2'
+              }`}
+            >
+              {c.name}
+            </button>
+          ))}
+        </div>
+      )}
 
       {error && (
         <div className="rounded-2xl border border-edge bg-surface p-6 text-sm text-ink-2">
@@ -98,7 +124,7 @@ function AccountStatusSection({ contextId }: { contextId: number }) {
 
       {!error && status && (
         <>
-          <AccountsManager contextId={contextId} accounts={status.accounts} onChanged={load} />
+          <AccountsManager contextId={activeId} accounts={status.accounts} onChanged={load} />
 
           {status.accounts.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-edge bg-surface p-8 text-center text-sm text-ink-2">
@@ -421,6 +447,10 @@ function AccountEvolution({ status }: { status: AccountStatus }) {
   )
 }
 
+// Enkel deze activaklassen tellen mee als "belegging" in de Vermogen-tab; de
+// detailverdeling per positie staat al in de Beleggingen-tab.
+const INVESTMENT_CLASSES: AssetClass[] = ['etf_fondsen', 'aandelen', 'bitcoin']
+
 /** Totaal van een maandrij, eventueel zonder de woning-klasse. */
 function rowTotalExcl(row: NetWorthRow, excludeWoning: boolean): number {
   return row.assets
@@ -467,6 +497,13 @@ function NetWorthSection({ contextId }: { contextId: number }) {
     cents: a.value_cents,
     color: ASSET_CLASS_COLORS[a.asset_class],
   }))
+  const investRows = breakdown
+    .filter((a) => INVESTMENT_CLASSES.includes(a.asset_class))
+    .map((a) => ({
+      name: ASSET_CLASS_LABEL[a.asset_class],
+      cents: a.value_cents,
+      color: ASSET_CLASS_COLORS[a.asset_class],
+    }))
 
   // Totaal + verandering in de weergavelaag herrekend, zodat de "zonder woning"-
   // toggle klopt (de backend levert change altijd op het volledige totaal).
@@ -576,7 +613,7 @@ function NetWorthSection({ contextId }: { contextId: number }) {
 
           {rows.length > 0 && (
             <>
-              <VermogenDonuts selectedIds={selectedIds} activaRows={donutRows} />
+              <VermogenDonuts selectedIds={selectedIds} activaRows={donutRows} investRows={investRows} />
               <NetWorthEvolution data={data} excludeWoning={excludeWoning} />
             </>
           )}
@@ -589,16 +626,18 @@ function NetWorthSection({ contextId }: { contextId: number }) {
 type SimpleRow = { name: string; cents: number; color?: string }
 
 /** De vier balansdonuts uit de Excel (spec §9): activasplit, per entiteit, beleggingen, contant.
- * Beleggingen en contant worden per geselecteerde entiteit opgehaald en samengeteld. */
+ * Beleggingen is de activaklasse-verdeling (etf/aandelen/BTC) — het detail per positie
+ * staat al in de Beleggingen-tab. Contant wordt per geselecteerde entiteit opgehaald. */
 function VermogenDonuts({
   selectedIds,
   activaRows,
+  investRows,
 }: {
   selectedIds: number[]
   activaRows: SimpleRow[]
+  investRows: SimpleRow[]
 }) {
   const [summary, setSummary] = useState<NetWorthSummary | null>(null)
-  const [beleggingen, setBeleggingen] = useState<SimpleRow[]>([])
   const [contant, setContant] = useState<SimpleRow[]>([])
 
   useEffect(() => {
@@ -609,21 +648,6 @@ function VermogenDonuts({
 
   useEffect(() => {
     let cancelled = false
-    // Beleggingen per positie, samengeteld over de gekozen entiteiten.
-    Promise.all(
-      selectedIds.map((id) => api<Portfolio>(`/api/portfolio?context_id=${id}`).catch(() => null)),
-    ).then((list) => {
-      if (cancelled) return
-      const merged = new Map<string, number>()
-      for (const p of list) {
-        if (!p) continue
-        for (const pos of p.positions) {
-          if (pos.value_cents === null) continue
-          merged.set(pos.name, (merged.get(pos.name) ?? 0) + pos.value_cents)
-        }
-      }
-      setBeleggingen([...merged].map(([name, cents]) => ({ name, cents })))
-    })
     // Contant per rekening (recentste maand), zonder pensioensparen/groepsverzekering.
     Promise.all(
       selectedIds.map((id) =>
@@ -672,7 +696,7 @@ function VermogenDonuts({
         kind="saving"
         maxSegments={4}
       />
-      <DonutCard title="Balans beleggingen" rows={beleggingen} kind="saving" maxSegments={6} />
+      <DonutCard title="Balans beleggingen" rows={investRows} kind="saving" maxSegments={3} />
       <DonutCard title="Balans contant geld" rows={contant} kind="saving" maxSegments={6} />
     </div>
   )

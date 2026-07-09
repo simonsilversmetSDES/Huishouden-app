@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { api, ApiError } from '../api/client'
 import type {
+  Benchmark,
   Portfolio,
   PriceFetchResult,
   Security,
@@ -173,7 +174,7 @@ export default function Beleggingen() {
             gainPct={totalGainPct}
             donutRows={donutRows}
           />
-          <YearlyReturns years={portfolio.yearly_returns} />
+          <YearlyReturns years={portfolio.yearly_returns} benchmark={portfolio.benchmark} />
           <PositionsTable
             portfolio={portfolio}
             securities={securities}
@@ -247,9 +248,20 @@ function Overview({
   )
 }
 
-function YearlyReturns({ years }: { years: YearReturn[] }) {
+function YearPct({ pct }: { pct: number | null }) {
+  if (pct === null) return <span className="text-ink-3">onvolledig</span>
+  return (
+    <span className={pct < 0 ? 'text-crit' : 'text-good'}>
+      {pct > 0 ? '+' : ''}
+      {pctFmt.format(pct)} %
+    </span>
+  )
+}
+
+function YearlyReturns({ years, benchmark }: { years: YearReturn[]; benchmark: Benchmark | null }) {
   if (years.length === 0) return null
   const anyComplete = years.some((y) => y.return_pct !== null)
+  const benchByYear = new Map((benchmark?.years ?? []).map((y) => [y.year, y]))
   return (
     <section className="space-y-3">
       <div className="flex flex-wrap items-baseline gap-x-3">
@@ -265,27 +277,40 @@ function YearlyReturns({ years }: { years: YearReturn[] }) {
           op naarmate de koersen dagelijks worden bijgehouden.
         </p>
       ) : (
-        <div className="flex flex-wrap gap-2">
-          {years.map((y) => (
-            <div
-              key={y.year}
-              className="rounded-2xl border border-edge bg-surface px-4 py-3 text-sm"
-              title={
-                y.complete ? undefined : 'Onvoldoende historische koersen om dit jaar te waarderen'
-              }
-            >
-              <span className="text-ink-3">{y.year}: </span>
-              {y.return_pct === null ? (
-                <span className="text-ink-3">onvolledig</span>
-              ) : (
-                <span className={`font-medium ${y.return_pct < 0 ? 'text-crit' : 'text-good'}`}>
-                  {y.return_pct > 0 ? '+' : ''}
-                  {pctFmt.format(y.return_pct)} %
-                </span>
-              )}
-            </div>
-          ))}
-        </div>
+        <>
+          <div className="flex flex-wrap gap-2">
+            {years.map((y) => {
+              const bench = benchByYear.get(y.year)
+              return (
+                <div
+                  key={y.year}
+                  className="rounded-2xl border border-edge bg-surface px-4 py-3 text-sm"
+                  title={
+                    y.complete
+                      ? undefined
+                      : 'Onvoldoende historische koersen om dit jaar te waarderen'
+                  }
+                >
+                  <span className="text-ink-3">{y.year}: </span>
+                  <span className="font-medium">
+                    <YearPct pct={y.return_pct} />
+                  </span>
+                  {bench && (
+                    <div className="mt-1 border-t border-line pt-1 text-xs text-ink-3">
+                      referentie: <YearPct pct={bench.return_pct} />
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+          {benchmark && (
+            <p className="text-xs text-ink-3">
+              "referentie" = koersrendement van {benchmark.name} (geen Modified Dietz — dus
+              onafhankelijk van wanneer jij instapte of bijstortte).
+            </p>
+          )}
+        </>
       )}
     </section>
   )
@@ -452,6 +477,7 @@ function EditSecurityModal({
   const [ticker, setTicker] = useState(security.ticker ?? '')
   const [isin, setIsin] = useState(security.isin ?? '')
   const [soort, setSoort] = useState<SecurityKind>(security.soort)
+  const [isBenchmark, setIsBenchmark] = useState(security.is_benchmark)
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<SecuritySearchHit[]>([])
   const [searching, setSearching] = useState(false)
@@ -484,6 +510,7 @@ function EditSecurityModal({
       isin: isin.trim() || null,
       owner_context_id: security.owner_context_id,
       soort,
+      is_benchmark: isBenchmark,
     }
     try {
       await api(`/api/securities/${security.id}`, { method: 'PUT', body: JSON.stringify(payload) })
@@ -538,6 +565,22 @@ function EditSecurityModal({
               ))}
             </select>
           </label>
+
+          <label className="flex items-center gap-2 text-sm text-ink-2">
+            <input
+              type="checkbox"
+              checked={isBenchmark}
+              onChange={(e) => setIsBenchmark(e.target.checked)}
+              className="size-4 accent-accent"
+            />
+            Gebruik als referentie-index (wereldindex) op de Vermogen-tab
+          </label>
+          {isBenchmark && (
+            <p className="text-xs text-ink-3">
+              Er kan maar één referentie-index per persoon zijn — een ander gemarkeerd
+              effect wordt automatisch uitgevinkt.
+            </p>
+          )}
 
           <label className="block">
             <span className="mb-1 block text-xs uppercase tracking-wide text-ink-3">
@@ -1028,11 +1071,16 @@ function EntrySection({
   onChanged: () => void
 }) {
   return (
-    <section className="grid gap-4 lg:grid-cols-3">
-      <SecurityForm contextId={contextId} onSaved={onChanged} />
-      <TransactionForm securities={securities} onSaved={onChanged} />
-      <PriceForm securities={securities} onSaved={onChanged} />
-    </section>
+    <details className="rounded-2xl border border-edge bg-surface">
+      <summary className="cursor-pointer px-5 py-3 text-sm font-medium text-ink-2">
+        Effect toevoegen / transactie loggen / koers invoeren
+      </summary>
+      <section className="grid gap-4 border-t border-line p-5 lg:grid-cols-3">
+        <SecurityForm contextId={contextId} onSaved={onChanged} />
+        <TransactionForm securities={securities} onSaved={onChanged} />
+        <PriceForm securities={securities} onSaved={onChanged} />
+      </section>
+    </details>
   )
 }
 
@@ -1056,6 +1104,7 @@ function SecurityForm({ contextId, onSaved }: { contextId: number; onSaved: () =
       isin: isin.trim() || null,
       owner_context_id: contextId,
       soort,
+      is_benchmark: false,
     }
     try {
       await api<Security>('/api/securities', { method: 'POST', body: JSON.stringify(payload) })

@@ -1,4 +1,4 @@
-import { Link, NavLink, Outlet } from 'react-router-dom'
+import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 import { useAppState } from '../state/AppState'
 import {
@@ -20,9 +20,15 @@ const NAV = [
   { to: '/financien/lening', end: false, label: 'Lening', icon: IconHome },
 ]
 
+// Vermogen en Lening hebben eigen (of geen) entiteitsfilter nodig — de globale
+// context-switcher zou daar dubbelop of misleidend zijn.
+const HIDE_CONTEXT_SWITCHER = ['/financien/vermogen', '/financien/lening']
+
 export default function FinanceLayout() {
   const { user, logout } = useAuth()
   const { contexts, contextId, setContextId } = useAppState()
+  const location = useLocation()
+  const showContextSwitcher = !HIDE_CONTEXT_SWITCHER.some((p) => location.pathname.startsWith(p))
 
   return (
     <div className="min-h-screen bg-page pb-20 text-ink">
@@ -35,21 +41,23 @@ export default function FinanceLayout() {
           >
             <IconGrid className="size-5" />
           </Link>
-          <nav className="flex items-center gap-1 overflow-x-auto">
-            {contexts.map((c) => (
-              <button
-                key={c.id}
-                onClick={() => setContextId(c.id)}
-                className={`whitespace-nowrap rounded-full px-3 py-1 text-sm transition-colors ${
-                  c.id === contextId
-                    ? 'bg-ink text-white'
-                    : 'text-ink-3 hover:bg-surface hover:text-ink-2'
-                }`}
-              >
-                {c.name}
-              </button>
-            ))}
-          </nav>
+          {showContextSwitcher && (
+            <nav className="flex items-center gap-1 overflow-x-auto">
+              {contexts.map((c) => (
+                <button
+                  key={c.id}
+                  onClick={() => setContextId(c.id)}
+                  className={`whitespace-nowrap rounded-full px-3 py-1 text-sm transition-colors ${
+                    c.id === contextId
+                      ? 'bg-ink text-white'
+                      : 'text-ink-3 hover:bg-surface hover:text-ink-2'
+                  }`}
+                >
+                  {c.name}
+                </button>
+              ))}
+            </nav>
+          )}
           <button
             onClick={() => void logout()}
             title={`Ingelogd als ${user?.name ?? ''}`}

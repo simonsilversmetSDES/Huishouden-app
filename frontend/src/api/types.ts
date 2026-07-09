@@ -189,6 +189,7 @@ export interface Security {
   isin: string | null
   owner_context_id: number
   soort: SecurityKind
+  is_benchmark: boolean
   suggested_ticker?: string | null // afgeleid uit de naam wanneer ticker leeg is
 }
 
@@ -219,6 +220,7 @@ export interface SecurityPayload {
   isin: string | null
   owner_context_id: number
   soort: SecurityKind
+  is_benchmark: boolean
 }
 
 export interface SecurityTransaction {
@@ -282,6 +284,18 @@ export interface YearReturn {
   complete: boolean
 }
 
+export interface BenchmarkYear {
+  year: number
+  return_pct: number | null // null = geen jaargrens-koers binnen tolerantie
+  complete: boolean
+}
+
+export interface Benchmark {
+  security_id: number
+  name: string
+  years: BenchmarkYear[]
+}
+
 export interface Portfolio {
   context_id: number
   positions: Position[]
@@ -292,6 +306,7 @@ export interface Portfolio {
   realized_gains: RealizedGain[]
   realized_by_year: RealizedYear[]
   yearly_returns: YearReturn[]
+  benchmark: Benchmark | null
 }
 
 export interface SecurityPricePayload {
