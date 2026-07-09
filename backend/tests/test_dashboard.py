@@ -138,6 +138,27 @@ class TestDashboard:
         resp = logged_in.get("/api/dashboard", params={"context_id": 999, "year": 2025, "month": 7})
         assert resp.status_code == 404
 
+    def test_budget_op_inactieve_categorie_genegeerd(
+        self, logged_in: TestClient, seeded_db: Session
+    ) -> None:
+        """Een budget op een gedeactiveerde categorie mag het dashboard niet laten crashen
+        en telt niet mee — zoals de budgetmatrix zulke rijen stil overslaat."""
+        context_id = _setup_maand(logged_in, seeded_db)
+        boodschappen = _category(seeded_db, context_id, "Boodschappen")
+        boodschappen.active = False
+        seeded_db.commit()
+
+        resp = logged_in.get(
+            "/api/dashboard", params={"context_id": context_id, "year": 2025, "month": 7}
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+        # De inactieve categorie verschijnt niet meer in de rijen...
+        assert "Boodschappen" not in {r["name"] for r in data["categories"]}
+        # ...en haar budget telt niet mee in het Uitgaven-totaal.
+        totals = {t["type"]: t for t in data["type_totals"]}
+        assert totals["Uitgaven"]["budget_cents"] == 0
+
 
 class TestJaarWeergave:
     """month weglaten = heel jaar; juni- én juli-transacties tellen dan samen."""

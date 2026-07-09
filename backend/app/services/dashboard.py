@@ -65,6 +65,10 @@ def build_dashboard(
 
     budget_per_category: dict[int, Decimal] = {}
     for row in budget_rows:
+        # Budgetten van gedeactiveerde categorieën stil overslaan, net als de
+        # budgetmatrix (services/budget.py): ze horen niet in de totalen of TBA.
+        if row.category_id not in type_of:
+            continue
         monthly_budget[row.month][type_of[row.category_id]] += row.amount
         if in_period(row.month):
             budget_per_category[row.category_id] = (
