@@ -6,8 +6,16 @@ import {
   useState,
   type KeyboardEvent,
 } from 'react'
+import { createPortal } from 'react-dom'
 import { api, ApiError } from '../api/client'
-import type { BudgetCellUpdate, BudgetMatrix, Category, CategoryPayload, CategoryType } from '../api/types'
+import type {
+  BudgetCellUpdate,
+  BudgetMatrix,
+  BudgetNotePayload,
+  Category,
+  CategoryPayload,
+  CategoryType,
+} from '../api/types'
 import { formatCentsWhole, MAAND_KORT, parseEuroToCents } from '../lib/format'
 import { useAppState } from '../state/AppState'
 
@@ -33,6 +41,17 @@ export default function Budget() {
       await api<void>('/api/budgets', {
         method: 'PUT',
         body: JSON.stringify({ items }),
+      })
+      load()
+    },
+    [load],
+  )
+
+  const saveNote = useCallback(
+    async (payload: BudgetNotePayload) => {
+      await api<void>('/api/budgets/notes', {
+        method: 'PUT',
+        body: JSON.stringify(payload),
       })
       load()
     },
@@ -126,6 +145,7 @@ export default function Budget() {
             matrix={matrix}
             year={year}
             onSave={save}
+            onSaveNote={saveNote}
             onAddCategory={addCategory}
             onDeleteCategory={deleteCategory}
           />
@@ -136,7 +156,8 @@ export default function Budget() {
       <p className="text-xs text-ink-3">
         Klik een cel om te bewerken · sleep of Shift/Ctrl-klik om meerdere cellen te
         selecteren · typ een bedrag en <strong>Ctrl+Enter</strong> vult alle geselecteerde
-        cellen · <strong>Delete</strong> wist de selectie · Enter = opslaan · Esc = annuleren
+        cellen · <strong>Delete</strong> wist de selectie · Enter = opslaan · Esc = annuleren ·
+        rechtsklik = notitie
       </p>
     </div>
   )
@@ -146,19 +167,28 @@ interface MatrixTableProps {
   matrix: BudgetMatrix
   year: number
   onSave: (items: BudgetCellUpdate[]) => Promise<void>
+  onSaveNote: (payload: BudgetNotePayload) => Promise<void>
   onAddCategory: (type: CategoryType, name: string) => Promise<boolean>
   onDeleteCategory: (id: number, name: string) => void
 }
 
 const cellKey = (categoryId: number, month: number) => `${categoryId}:${month}`
 
-function MatrixTable({ matrix, year, onSave, onAddCategory, onDeleteCategory }: MatrixTableProps) {
+function MatrixTable({
+  matrix,
+  year,
+  onSave,
+  onSaveNote,
+  onAddCategory,
+  onDeleteCategory,
+}: MatrixTableProps) {
   // Vlakke, geordende lijst van categorie-id's (voor rechthoekige bereikselectie) +
-  // de centen per cel (om een editor met de juiste beginwaarde te openen).
-  const { orderedCats, rowIndexByCat, centsByKey } = useMemo(() => {
+  // de centen en notities per cel (editor-beginwaarde, driehoekje, tooltip).
+  const { orderedCats, rowIndexByCat, centsByKey, notesByKey } = useMemo(() => {
     const orderedCats: number[] = []
     const rowIndexByCat = new Map<number, number>()
     const centsByKey = new Map<string, number>()
+    const notesByKey = new Map<string, string>()
     for (const group of matrix.groups) {
       for (const row of group.categories) {
         rowIndexByCat.set(row.category_id, orderedCats.length)
@@ -166,9 +196,12 @@ function MatrixTable({ matrix, year, onSave, onAddCategory, onDeleteCategory }: 
         row.month_cents.forEach((cents, i) =>
           centsByKey.set(cellKey(row.category_id, i + 1), cents),
         )
+        row.month_notes.forEach((note, i) => {
+          if (note !== null) notesByKey.set(cellKey(row.category_id, i + 1), note)
+        })
       }
     }
-    return { orderedCats, rowIndexByCat, centsByKey }
+    return { orderedCats, rowIndexByCat, centsByKey, notesByKey }
   }, [matrix])
 
   const [selected, setSelected] = useState<Set<string>>(() => new Set())
@@ -176,6 +209,13 @@ function MatrixTable({ matrix, year, onSave, onAddCategory, onDeleteCategory }: 
   const [editText, setEditText] = useState('')
   const [invalid, setInvalid] = useState(false)
   const [busy, setBusy] = useState(false)
+
+  // Celnotities (Excel-achtig): rechtsklikmenu, notitie-popover en hover-tooltip.
+  const [menu, setMenu] = useState<{ x: number; y: number; categoryId: number; month: number } | null>(null)
+  const [noteEdit, setNoteEdit] = useState<{ categoryId: number; month: number; x: number; y: number } | null>(null)
+  const [noteText, setNoteText] = useState('')
+  const [noteBusy, setNoteBusy] = useState(false)
+  const [hoverNote, setHoverNote] = useState<{ text: string; x: number; y: number } | null>(null)
 
   // Refs met de laatste waarden voor de globale toets-/muishandlers (één keer geregistreerd).
   const anchorRef = useRef<{ row: number; month: number } | null>(null)
@@ -268,6 +308,7 @@ function MatrixTable({ matrix, year, onSave, onAddCategory, onDeleteCategory }: 
     month: number,
     e: React.MouseEvent<HTMLTableCellElement>,
   ) {
+    if (e.button !== 0) return // rechtsklik opent het notitiemenu, geen selectie-sleep
     const row = rowIndexByCat.get(categoryId)
     if (row === undefined) return
     if (e.shiftKey && anchorRef.current) {
@@ -353,6 +394,72 @@ function MatrixTable({ matrix, year, onSave, onAddCategory, onDeleteCategory }: 
     return () => window.removeEventListener('keydown', onKey)
   }, [openEditor, clearCells])
 
+  // Rechtsklik: cel selecteren (zoals Excel) en het notitiemenu op de cursor openen.
+  function onCellContextMenu(
+    categoryId: number,
+    month: number,
+    e: React.MouseEvent<HTMLTableCellElement>,
+  ) {
+    e.preventDefault()
+    const row = rowIndexByCat.get(categoryId)
+    if (row !== undefined) {
+      anchorRef.current = { row, month }
+      setSelected(new Set([cellKey(categoryId, month)]))
+    }
+    setHoverNote(null)
+    setMenu({ x: Math.min(e.clientX, window.innerWidth - 200), y: e.clientY, categoryId, month })
+  }
+
+  // Menu sluit bij klik elders of Escape (mousedown op het menu zelf stopt de bubble).
+  useEffect(() => {
+    if (!menu) return
+    const close = () => setMenu(null)
+    const onKey = (e: globalThis.KeyboardEvent) => {
+      if (e.key === 'Escape') setMenu(null)
+    }
+    window.addEventListener('mousedown', close)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('mousedown', close)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [menu])
+
+  function openNoteEditor() {
+    if (!menu) return
+    setNoteText(notesByKey.get(cellKey(menu.categoryId, menu.month)) ?? '')
+    setNoteEdit({
+      categoryId: menu.categoryId,
+      month: menu.month,
+      x: Math.min(menu.x, window.innerWidth - 300),
+      y: menu.y,
+    })
+    setMenu(null)
+  }
+
+  async function saveNote(text: string) {
+    if (!noteEdit) return
+    setNoteBusy(true)
+    try {
+      await onSaveNote({
+        category_id: noteEdit.categoryId,
+        year,
+        month: noteEdit.month,
+        note: text,
+      })
+      setNoteEdit(null)
+    } finally {
+      setNoteBusy(false)
+    }
+  }
+
+  function removeNoteFromMenu() {
+    if (!menu) return
+    const { categoryId, month } = menu
+    setMenu(null)
+    void onSaveNote({ category_id: categoryId, year, month, note: '' })
+  }
+
   function onEditKeyDown(e: KeyboardEvent<HTMLInputElement>) {
     if (!editing) return
     const key = cellKey(editing.categoryId, editing.month)
@@ -386,12 +493,15 @@ function MatrixTable({ matrix, year, onSave, onAddCategory, onDeleteCategory }: 
   const cellCtrl: CellController = {
     isSelected: (cid, m) => selected.has(cellKey(cid, m)),
     isEditing: (cid, m) => editing?.categoryId === cid && editing.month === m,
+    noteFor: (cid, m) => notesByKey.get(cellKey(cid, m)) ?? null,
     editText,
     invalid,
     busy,
     multiCount: selected.size,
     onCellMouseDown,
     onCellMouseEnter,
+    onCellContextMenu,
+    onNoteHover: setHoverNote,
     onEditChange: (v) => {
       setEditText(v)
       setInvalid(false)
@@ -400,7 +510,10 @@ function MatrixTable({ matrix, year, onSave, onAddCategory, onDeleteCategory }: 
     onEditBlur,
   }
 
+  const menuHasNote = menu !== null && notesByKey.has(cellKey(menu.categoryId, menu.month))
+
   return (
+    <>
     <div className="overflow-x-auto rounded-2xl border border-edge bg-surface">
       <table className="w-full min-w-[760px] select-none border-collapse text-sm">
         <thead>
@@ -447,6 +560,89 @@ function MatrixTable({ matrix, year, onSave, onAddCategory, onDeleteCategory }: 
         </tbody>
       </table>
     </div>
+
+    {/* Overlays via een portal naar <body>: de matrix-container heeft een CSS-transform
+        (-translate-x-1/2) en die maakt position:fixed anders relatief aan de container. */}
+    {menu && createPortal(
+      <div
+        onMouseDown={(e) => e.stopPropagation()}
+        className="fixed z-50 min-w-44 rounded-lg border border-edge bg-surface py-1 text-sm shadow-lg"
+        style={{ left: menu.x, top: menu.y }}
+      >
+        <button
+          onClick={openNoteEditor}
+          className="block w-full px-3 py-1.5 text-left hover:bg-raised"
+        >
+          {menuHasNote ? 'Notitie bewerken' : 'Notitie toevoegen'}
+        </button>
+        {menuHasNote && (
+          <button
+            onClick={removeNoteFromMenu}
+            className="block w-full px-3 py-1.5 text-left text-crit hover:bg-raised"
+          >
+            Notitie verwijderen
+          </button>
+        )}
+      </div>,
+      document.body,
+    )}
+
+    {/* Notitie-editor (Excel-achtige gele post-it) */}
+    {noteEdit && createPortal(
+      <div
+        className="fixed z-50 w-72 rounded-lg border border-warn/50 bg-[#fdf6d8] p-2 shadow-lg"
+        style={{ left: noteEdit.x, top: noteEdit.y }}
+      >
+        <textarea
+          autoFocus
+          rows={4}
+          value={noteText}
+          disabled={noteBusy}
+          onChange={(e) => setNoteText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              e.preventDefault()
+              setNoteEdit(null)
+            } else if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+              e.preventDefault()
+              void saveNote(noteText)
+            }
+          }}
+          placeholder="Notitie…"
+          className="w-full resize-none bg-transparent text-sm text-ink focus:outline-none"
+        />
+        <div className="mt-1 flex items-center gap-2">
+          <button
+            onClick={() => void saveNote(noteText)}
+            disabled={noteBusy}
+            className="rounded bg-accent px-2.5 py-1 text-xs font-medium text-white hover:bg-accent/85 disabled:opacity-50"
+          >
+            Opslaan
+          </button>
+          <button
+            onClick={() => setNoteEdit(null)}
+            disabled={noteBusy}
+            className="text-xs text-ink-3 hover:text-ink-2"
+          >
+            Annuleren
+          </button>
+          <span className="ml-auto text-[10px] text-ink-3">Ctrl+Enter = opslaan</span>
+        </div>
+      </div>,
+      document.body,
+    )}
+
+    {/* Hover-tooltip met de notitie-inhoud */}
+    {hoverNote && !menu && !noteEdit && createPortal(
+      <div
+        className="pointer-events-none fixed z-40 max-w-72 whitespace-pre-wrap rounded-lg border border-warn/50 bg-[#fdf6d8] px-3 py-2 text-xs text-ink shadow-lg"
+        style={{ left: hoverNote.x, top: hoverNote.y + 4 }}
+      >
+        {hoverNote.text}
+      </div>,
+      document.body,
+    )}
+    </>
   )
 }
 
@@ -459,6 +655,7 @@ function tbaClass(cents: number): string {
 interface CellController {
   isSelected: (categoryId: number, month: number) => boolean
   isEditing: (categoryId: number, month: number) => boolean
+  noteFor: (categoryId: number, month: number) => string | null
   editText: string
   invalid: boolean
   busy: boolean
@@ -469,6 +666,12 @@ interface CellController {
     e: React.MouseEvent<HTMLTableCellElement>,
   ) => void
   onCellMouseEnter: (categoryId: number, month: number) => void
+  onCellContextMenu: (
+    categoryId: number,
+    month: number,
+    e: React.MouseEvent<HTMLTableCellElement>,
+  ) => void
+  onNoteHover: (info: { text: string; x: number; y: number } | null) => void
   onEditChange: (value: string) => void
   onEditKeyDown: (e: KeyboardEvent<HTMLInputElement>) => void
   onEditBlur: () => void
@@ -580,14 +783,32 @@ function Cell({
     )
   }
 
+  const note = ctrl.noteFor(categoryId, month)
+
   return (
     <td
       onMouseDown={(e) => ctrl.onCellMouseDown(categoryId, month, e)}
-      onMouseEnter={() => ctrl.onCellMouseEnter(categoryId, month)}
-      className={`cursor-cell px-2 py-1 text-right transition-colors ${
+      onMouseEnter={(e) => {
+        ctrl.onCellMouseEnter(categoryId, month)
+        if (note !== null) {
+          const r = e.currentTarget.getBoundingClientRect()
+          ctrl.onNoteHover({ text: note, x: r.left, y: r.bottom })
+        }
+      }}
+      onMouseLeave={() => {
+        if (note !== null) ctrl.onNoteHover(null)
+      }}
+      onContextMenu={(e) => ctrl.onCellContextMenu(categoryId, month, e)}
+      className={`relative cursor-cell px-2 py-1 text-right transition-colors ${
         selected ? 'bg-accent/15 ring-1 ring-inset ring-accent' : 'hover:bg-raised'
       }`}
     >
+      {note !== null && (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute right-0 top-0 border-l-[6px] border-t-[6px] border-l-transparent border-t-crit"
+        />
+      )}
       {cents !== 0 ? formatCentsWhole(cents) : <span className="text-ink-3">·</span>}
     </td>
   )

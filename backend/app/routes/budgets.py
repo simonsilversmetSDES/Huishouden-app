@@ -6,8 +6,8 @@ from sqlalchemy.orm import Session
 from app.auth.deps import CurrentUser
 from app.database import get_db
 from app.models import Context
-from app.schemas.budget import BudgetMatrixOut, BudgetUpsertIn
-from app.services.budget import UnknownCategoryError, build_matrix, upsert_budgets
+from app.schemas.budget import BudgetMatrixOut, BudgetNoteIn, BudgetUpsertIn
+from app.services.budget import UnknownCategoryError, build_matrix, upsert_budgets, upsert_note
 
 router = APIRouter(prefix="/api/budgets", tags=["budgets"])
 
@@ -38,5 +38,18 @@ def put_budgets(
 ) -> None:
     try:
         upsert_budgets(db, body.items)
+    except UnknownCategoryError as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.put("/notes", status_code=status.HTTP_204_NO_CONTENT)
+def put_budget_note(
+    body: BudgetNoteIn,
+    _user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+) -> None:
+    """Celnotitie zetten of wissen (lege notitie = verwijderen)."""
+    try:
+        upsert_note(db, body)
     except UnknownCategoryError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc

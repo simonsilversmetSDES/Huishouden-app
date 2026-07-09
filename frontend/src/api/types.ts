@@ -41,6 +41,7 @@ export interface BudgetCategoryRow {
   category_id: number
   name: string
   month_cents: number[]
+  month_notes: (string | null)[] // 12 waarden; null = geen notitie
   total_cents: number
 }
 
@@ -64,6 +65,13 @@ export interface BudgetCellUpdate {
   year: number
   month: number
   amount_cents: number
+}
+
+export interface BudgetNotePayload {
+  category_id: number
+  year: number
+  month: number
+  note: string // leeg = notitie verwijderen
 }
 
 export interface Category {

@@ -9,12 +9,13 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import Budget, Category, Context
+from app.models import Budget, BudgetNote, Category, Context
 from app.models.enums import CategoryType
 from app.schemas.budget import (
     BudgetCategoryRow,
     BudgetCellIn,
     BudgetMatrixOut,
+    BudgetNoteIn,
     BudgetTypeGroup,
 )
 
@@ -52,11 +53,20 @@ def build_matrix(db: Session, context: Context, year: int) -> BudgetMatrixOut:
         .join(Category, Budget.category_id == Category.id)
         .where(Category.context_id == context.id, Budget.year == year)
     ).all()
+    note_rows = db.scalars(
+        select(BudgetNote)
+        .join(Category, BudgetNote.category_id == Category.id)
+        .where(Category.context_id == context.id, BudgetNote.year == year)
+    ).all()
 
     per_category: dict[int, list[Decimal]] = {c.id: [ZERO] * 12 for c in categories}
     for row in budget_rows:
         if row.category_id in per_category:
             per_category[row.category_id][row.month - 1] = row.amount
+    notes_per_category: dict[int, list[str | None]] = {c.id: [None] * 12 for c in categories}
+    for note in note_rows:
+        if note.category_id in notes_per_category:
+            notes_per_category[note.category_id][note.month - 1] = note.note
 
     groups: list[BudgetTypeGroup] = []
     type_month_totals: dict[CategoryType, list[Decimal]] = {}
@@ -74,6 +84,7 @@ def build_matrix(db: Session, context: Context, year: int) -> BudgetMatrixOut:
                     category_id=category.id,
                     name=category.name,
                     month_cents=[to_cents(m) for m in months],
+                    month_notes=notes_per_category[category.id],
                     total_cents=to_cents(sum(months, ZERO)),
                 )
             )
@@ -129,4 +140,28 @@ def upsert_budgets(db: Session, items: list[BudgetCellIn]) -> None:
             )
         else:
             existing.amount = amount
+    db.commit()
+
+
+def upsert_note(db: Session, item: BudgetNoteIn) -> None:
+    """Zet of wist een celnotitie (lege/witruimte-notitie = verwijderen)."""
+    if db.get(Category, item.category_id) is None:
+        raise UnknownCategoryError(f"Onbekende categorie: {item.category_id}")
+    existing = db.scalars(
+        select(BudgetNote).where(
+            BudgetNote.category_id == item.category_id,
+            BudgetNote.year == item.year,
+            BudgetNote.month == item.month,
+        )
+    ).one_or_none()
+    text = item.note.strip()
+    if text == "":
+        if existing is not None:
+            db.delete(existing)
+    elif existing is None:
+        db.add(
+            BudgetNote(category_id=item.category_id, year=item.year, month=item.month, note=text)
+        )
+    else:
+        existing.note = text
     db.commit()

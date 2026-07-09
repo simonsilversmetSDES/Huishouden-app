@@ -162,3 +162,55 @@ class TestCategoryTypeVolgorde:
             CategoryType.UITGAVEN,
             CategoryType.SPAREN,
         ]
+
+
+class TestBudgetNotes:
+    """Excel-achtige celnotities: zetten, bijwerken, wissen; komen mee in de matrix."""
+
+    def _first_category(self, db: Session) -> Category:
+        context_id = _gem_context_id(db)
+        return db.scalars(
+            select(Category).where(Category.context_id == context_id).order_by(Category.id)
+        ).first()
+
+    def _matrix_note(self, client: TestClient, db: Session, category_id: int) -> str | None:
+        context_id = _gem_context_id(db)
+        resp = client.get("/api/budgets", params={"context_id": context_id, "year": 2025})
+        assert resp.status_code == 200
+        for group in resp.json()["groups"]:
+            for row in group["categories"]:
+                if row["category_id"] == category_id:
+                    return row["month_notes"][0]  # januari
+        raise AssertionError("categorie niet gevonden in matrix")
+
+    def test_zetten_bijwerken_en_wissen(self, logged_in: TestClient, seeded_db: Session) -> None:
+        cat = self._first_category(seeded_db)
+        body = {"category_id": cat.id, "year": 2025, "month": 1, "note": "voorschot geannuleerd"}
+        assert logged_in.put("/api/budgets/notes", json=body).status_code == 204
+        assert self._matrix_note(logged_in, seeded_db, cat.id) == "voorschot geannuleerd"
+
+        assert logged_in.put(
+            "/api/budgets/notes", json={**body, "note": "  bijgewerkt  "}
+        ).status_code == 204
+        assert self._matrix_note(logged_in, seeded_db, cat.id) == "bijgewerkt"
+
+        assert logged_in.put("/api/budgets/notes", json={**body, "note": "  "}).status_code == 204
+        assert self._matrix_note(logged_in, seeded_db, cat.id) is None
+
+    def test_notitie_zonder_budgetbedrag_kan(
+        self, logged_in: TestClient, seeded_db: Session
+    ) -> None:
+        # Geen enkel budget gezet; notitie mag toch bestaan.
+        cat = self._first_category(seeded_db)
+        body = {"category_id": cat.id, "year": 2025, "month": 1, "note": "nog te plannen"}
+        assert logged_in.put("/api/budgets/notes", json=body).status_code == 204
+        assert self._matrix_note(logged_in, seeded_db, cat.id) == "nog te plannen"
+
+    def test_onbekende_categorie_404(self, logged_in: TestClient) -> None:
+        body = {"category_id": 99999, "year": 2025, "month": 1, "note": "x"}
+        assert logged_in.put("/api/budgets/notes", json=body).status_code == 404
+
+    def test_ongeldige_maand_422(self, logged_in: TestClient, seeded_db: Session) -> None:
+        cat = self._first_category(seeded_db)
+        body = {"category_id": cat.id, "year": 2025, "month": 13, "note": "x"}
+        assert logged_in.put("/api/budgets/notes", json=body).status_code == 422

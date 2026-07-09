@@ -1,7 +1,7 @@
 """Alle modellen importeren zodat Base.metadata compleet is (Alembic autogenerate)."""
 
 from app.models.base import Base
-from app.models.budget import Budget
+from app.models.budget import Budget, BudgetNote
 from app.models.core import Account, Category, Context, User
 from app.models.investments import (
     Security,
@@ -20,6 +20,7 @@ __all__ = [
     "Account",
     "Category",
     "Budget",
+    "BudgetNote",
     "Transaction",
     "Import",
     "CategorizationRule",
