@@ -295,3 +295,75 @@ class TestForecastNetWorth:
         simon = _context(seeded_db, "Simon")
         out = build_forecast_net_worth(seeded_db, [simon], today=TODAY)
         assert out.rows == []
+
+
+class TestForecastApi:
+    """Routes; de rekenreferenties zitten in de service-tests hierboven."""
+
+    def test_vereist_login(self, client) -> None:
+        params = {"context_id": 1, "year": 2025}
+        assert client.get("/api/forecast", params=params).status_code == 401
+        assert client.put("/api/forecast/formulas", json={}).status_code == 401
+        assert client.get("/api/forecast/net-worth", params={"context_ids": 1}).status_code == 401
+
+    def test_matrix_en_formule_upsert(self, logged_in, seeded_db: Session) -> None:
+        simon = _context(seeded_db, "Simon")
+        year = date.today().year
+
+        resp = logged_in.put(
+            "/api/forecast/formulas",
+            json={"context_id": simon.id, "asset_class": "groepsverzekering",
+                  "formula": "vorige + 5"},
+        )
+        assert resp.status_code == 204
+
+        resp = logged_in.get("/api/forecast", params={"context_id": simon.id, "year": year})
+        assert resp.status_code == 200
+        matrix = resp.json()
+        assert matrix["year"] == year
+        assert [r["asset_class"] for r in matrix["rows"]] == [
+            "contant", "etf_fondsen", "pensioensparen", "groepsverzekering",
+            "woning", "aandelen", "bitcoin",
+        ]
+        groeps = next(r for r in matrix["rows"] if r["asset_class"] == "groepsverzekering")
+        assert groeps["formula"] == "vorige + 5"
+        assert groeps["is_default"] is False
+        assert len(groeps["cells"]) == 12
+        assert len(matrix["totals"]) == 12
+
+    def test_ongeldige_formule_422(self, logged_in, seeded_db: Session) -> None:
+        simon = _context(seeded_db, "Simon")
+        resp = logged_in.put(
+            "/api/forecast/formulas",
+            json={"context_id": simon.id, "asset_class": "contant", "formula": "vorige +"},
+        )
+        assert resp.status_code == 422
+        assert "verwacht" in resp.json()["detail"]
+
+    def test_onbekende_context_404(self, logged_in) -> None:
+        assert (
+            logged_in.get("/api/forecast", params={"context_id": 999, "year": 2025}).status_code
+            == 404
+        )
+        resp = logged_in.put(
+            "/api/forecast/formulas",
+            json={"context_id": 999, "asset_class": "contant", "formula": "vorige"},
+        )
+        assert resp.status_code == 404
+
+    def test_net_worth_forecast_meerdere_contexten(
+        self, logged_in, seeded_db: Session
+    ) -> None:
+        simon = _context(seeded_db, "Simon")
+        jozefien = _context(seeded_db, "Jozefien")
+        current_month = date.today().replace(day=1)
+        _snap(seeded_db, simon.id, current_month, AssetClass.CONTANT, "1000")
+        resp = logged_in.get(
+            "/api/forecast/net-worth",
+            params={"context_ids": [simon.id, jozefien.id]},
+        )
+        assert resp.status_code == 200
+        rows = resp.json()["rows"]
+        assert rows[0]["snapshot_date"] == current_month.isoformat()
+        # verbindingspunt + forecast t/m december van het huidige jaar
+        assert len(rows) == 12 - current_month.month + 1

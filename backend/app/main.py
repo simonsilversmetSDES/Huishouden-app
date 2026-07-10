@@ -7,6 +7,7 @@ from app.routes import (
     categories,
     contexts,
     dashboard,
+    forecast,
     health,
     imports,
     loans,
@@ -31,6 +32,7 @@ app.include_router(contexts.router)
 app.include_router(categories.router)
 app.include_router(budgets.router)
 app.include_router(dashboard.router)
+app.include_router(forecast.router)
 app.include_router(transactions.router)
 app.include_router(imports.router)
 app.include_router(rules.router)

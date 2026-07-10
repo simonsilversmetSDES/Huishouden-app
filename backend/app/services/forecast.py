@@ -267,7 +267,7 @@ def build_forecast_matrix(
         )
 
     totals: list[ForecastCellOut] = []
-    for index, month in enumerate(months):
+    for index, _month in enumerate(months):
         column = [row.cells[index] for row in rows]
         if any(cell.kind == "error" for cell in column):
             totals.append(ForecastCellOut(value_cents=None, kind="error"))
