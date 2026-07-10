@@ -19,13 +19,14 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import Budget, Category, Context, ForecastFormula, Loan
+from app.models import Budget, Category, Context, ForecastFormula, ForecastNote, Loan
 from app.models.enums import AssetClass
 from app.schemas.forecast import (
     ForecastCellOut,
     ForecastFormulaIn,
     ForecastMatrixOut,
     ForecastNetWorthOut,
+    ForecastNoteIn,
     ForecastRowOut,
 )
 from app.schemas.snapshots import AssetValue, NetWorthRow
@@ -265,6 +266,18 @@ def build_forecast_matrix(
             )
         )
 
+    # Celnotities (Excel-achtig) aan de cellen hangen; puur weergave, geen invloed
+    # op de berekening of de totalen.
+    row_by_class = {row.asset_class: row for row in rows}
+    for note in db.scalars(
+        select(ForecastNote).where(
+            ForecastNote.context_id == context.id, ForecastNote.year == year
+        )
+    ):
+        row = row_by_class.get(AssetClass(note.asset_class))
+        if row is not None:
+            row.cells[note.month - 1].note = note.note
+
     totals: list[ForecastCellOut] = []
     for index, _month in enumerate(months):
         column = [row.cells[index] for row in rows]
@@ -327,6 +340,37 @@ def upsert_formula(db: Session, item: ForecastFormulaIn) -> None:
         )
     else:
         existing.formula = text
+    db.commit()
+
+
+def upsert_forecast_note(db: Session, item: ForecastNoteIn) -> None:
+    """Zet of wist een celnotitie (lege/witruimte-notitie = verwijderen)."""
+    if db.get(Context, item.context_id) is None:
+        raise UnknownContextError(f"Onbekende context: {item.context_id}")
+    existing = db.scalars(
+        select(ForecastNote).where(
+            ForecastNote.context_id == item.context_id,
+            ForecastNote.asset_class == item.asset_class,
+            ForecastNote.year == item.year,
+            ForecastNote.month == item.month,
+        )
+    ).one_or_none()
+    text = item.note.strip()
+    if text == "":
+        if existing is not None:
+            db.delete(existing)
+    elif existing is None:
+        db.add(
+            ForecastNote(
+                context_id=item.context_id,
+                asset_class=item.asset_class,
+                year=item.year,
+                month=item.month,
+                note=text,
+            )
+        )
+    else:
+        existing.note = text
     db.commit()
 
 

@@ -28,3 +28,23 @@ class ForecastFormula(Base):
         CheckConstraint("month BETWEEN 0 AND 12", name="forecast_month_range"),
         CheckConstraint("(year = 0) = (month = 0)", name="forecast_default_sentinel"),
     )
+
+
+class ForecastNote(Base):
+    """Excel-achtige celnotitie op een forecastcel (context × activaklasse × jaar × maand),
+    zoals budget_notes op de budgetmatrix. Los van de formules: een notitie zegt niets
+    over de berekening."""
+
+    __tablename__ = "forecast_notes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    context_id: Mapped[int] = mapped_column(ForeignKey("contexts.id"))
+    asset_class: Mapped[AssetClass] = mapped_column(str_enum(AssetClass, "asset_class"))
+    year: Mapped[int] = mapped_column(Integer)
+    month: Mapped[int] = mapped_column(Integer)
+    note: Mapped[str] = mapped_column(String)
+
+    __table_args__ = (
+        UniqueConstraint("context_id", "asset_class", "year", "month"),
+        CheckConstraint("month BETWEEN 1 AND 12", name="forecast_note_month_range"),
+    )

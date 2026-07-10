@@ -196,6 +196,7 @@ export interface ForecastCell {
   override: boolean
   override_formula: string | null
   error: string | null
+  note: string | null // celnotitie (Excel-achtig), los van de formule
 }
 
 export interface ForecastRow {
@@ -220,6 +221,14 @@ export interface ForecastFormulaPayload {
   year?: number | null
   month?: number | null
   formula: string
+}
+
+export interface ForecastNotePayload {
+  context_id: number
+  asset_class: AssetClass
+  year: number
+  month: number
+  note: string // leeg = notitie verwijderen
 }
 
 export interface ForecastNetWorth {

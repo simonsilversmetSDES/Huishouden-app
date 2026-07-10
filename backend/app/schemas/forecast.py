@@ -3,7 +3,7 @@
 from datetime import date
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.models.enums import AssetClass
 from app.schemas.snapshots import NetWorthRow
@@ -17,6 +17,7 @@ class ForecastCellOut(BaseModel):
     override: bool = False  # cel heeft een eigen formule-override
     override_formula: str | None = None  # de override-tekst, voor de formulebalk
     error: str | None = None
+    note: str | None = None  # celnotitie (Excel-achtig), los van de formule
 
 
 class ForecastRowOut(BaseModel):
@@ -41,6 +42,16 @@ class ForecastFormulaIn(BaseModel):
     year: int | None = None  # None = rij-default; jaar+maand = cel-override
     month: int | None = None
     formula: str  # leeg = wissen (terug naar default)
+
+
+class ForecastNoteIn(BaseModel):
+    """Celnotitie zetten of wissen: een lege/witruimte-notitie verwijdert ze."""
+
+    context_id: int
+    asset_class: AssetClass
+    year: int = Field(ge=2000, le=2100)
+    month: int = Field(ge=1, le=12)
+    note: str
 
 
 class ForecastNetWorthOut(BaseModel):

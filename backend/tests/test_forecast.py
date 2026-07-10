@@ -367,3 +367,55 @@ class TestForecastApi:
         assert rows[0]["snapshot_date"] == current_month.isoformat()
         # verbindingspunt + forecast t/m december van het huidige jaar
         assert len(rows) == 12 - current_month.month + 1
+
+
+class TestForecastNotes:
+    """Excel-achtige celnotities op forecastcellen: zetten, bijwerken, wissen;
+    komen mee in de matrix en staan los van formules/berekening."""
+
+    def _cell_note(self, client, context_id: int, year: int, month: int) -> str | None:
+        resp = client.get("/api/forecast", params={"context_id": context_id, "year": year})
+        assert resp.status_code == 200
+        row = next(r for r in resp.json()["rows"] if r["asset_class"] == "contant")
+        return row["cells"][month - 1]["note"]
+
+    def test_zetten_bijwerken_en_wissen(self, logged_in, seeded_db: Session) -> None:
+        simon = _context(seeded_db, "Simon")
+        year = date.today().year
+        body = {"context_id": simon.id, "asset_class": "contant", "year": year, "month": 3,
+                "note": "spaargeld deels naar ETF"}
+        assert logged_in.put("/api/forecast/notes", json=body).status_code == 204
+        assert self._cell_note(logged_in, simon.id, year, 3) == "spaargeld deels naar ETF"
+
+        assert logged_in.put(
+            "/api/forecast/notes", json={**body, "note": "  bijgewerkt  "}
+        ).status_code == 204
+        assert self._cell_note(logged_in, simon.id, year, 3) == "bijgewerkt"
+
+        assert logged_in.put("/api/forecast/notes", json={**body, "note": ""}).status_code == 204
+        assert self._cell_note(logged_in, simon.id, year, 3) is None
+
+    def test_notitie_per_context_en_jaar_gescheiden(self, logged_in, seeded_db: Session) -> None:
+        simon = _context(seeded_db, "Simon")
+        jozefien = _context(seeded_db, "Jozefien")
+        year = date.today().year
+        body = {"context_id": simon.id, "asset_class": "contant", "year": year, "month": 1,
+                "note": "enkel bij Simon"}
+        assert logged_in.put("/api/forecast/notes", json=body).status_code == 204
+        assert self._cell_note(logged_in, simon.id, year, 1) == "enkel bij Simon"
+        assert self._cell_note(logged_in, jozefien.id, year, 1) is None
+        assert self._cell_note(logged_in, simon.id, year + 1, 1) is None
+
+    def test_onbekende_context_404(self, logged_in) -> None:
+        body = {"context_id": 99999, "asset_class": "contant", "year": 2026, "month": 1,
+                "note": "x"}
+        assert logged_in.put("/api/forecast/notes", json=body).status_code == 404
+
+    def test_ongeldige_maand_422(self, logged_in, seeded_db: Session) -> None:
+        simon = _context(seeded_db, "Simon")
+        body = {"context_id": simon.id, "asset_class": "contant", "year": 2026, "month": 0,
+                "note": "x"}
+        assert logged_in.put("/api/forecast/notes", json=body).status_code == 422
+
+    def test_vereist_login(self, client) -> None:
+        assert client.put("/api/forecast/notes", json={}).status_code == 401

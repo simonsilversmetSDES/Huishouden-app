@@ -4,10 +4,12 @@ import type {
   AssetClass,
   ForecastFormulaPayload,
   ForecastMatrix,
+  ForecastNotePayload,
   ForecastRow,
 } from '../api/types'
 import { ASSET_CLASS_LABEL } from '../lib/chartColors'
 import { formatCentsWhole, formatMonthYear, MAAND_KORT } from '../lib/format'
+import { NoteMarker, useCellNotes } from './cellNotes'
 
 /** Vermogensforecast ("Status balans" uit de Excel): balans per activaklasse,
  * werkelijke maanden + doorgerekende formules, onder de budgetmatrix. */
@@ -43,6 +45,34 @@ export default function ForecastTable({
     () => new Map((matrix?.rows ?? []).map((r) => [r.asset_class, r])),
     [matrix],
   )
+
+  // Celnotities (Excel-achtig): zelfde gedrag als de budgetmatrix; sleutel "klasse:maand".
+  const notes = useCellNotes({
+    noteFor: (key) => {
+      const [assetClass, m] = key.split(':')
+      return rowByClass.get(assetClass as AssetClass)?.cells[Number(m) - 1]?.note ?? null
+    },
+    onSave: async (key, note) => {
+      if (contextId === null) return
+      const [assetClass, m] = key.split(':')
+      await api<void>('/api/forecast/notes', {
+        method: 'PUT',
+        body: JSON.stringify({
+          context_id: contextId,
+          asset_class: assetClass as AssetClass,
+          year,
+          month: Number(m),
+          note,
+        } satisfies ForecastNotePayload),
+      })
+      load()
+    },
+    // Rechtsklik selecteert de cel, zodat de formulebalk meteen meekijkt.
+    onMenuOpen: (key) => {
+      const [assetClass, m] = key.split(':')
+      select(assetClass as AssetClass, Number(m))
+    },
+  })
 
   const selectedRow: ForecastRow | null =
     selection !== null ? (rowByClass.get(selection.assetClass) ?? null) : null
@@ -274,10 +304,14 @@ export default function ForecastTable({
                 {row.cells.map((cell, i) => {
                   const isSelected =
                     selection?.assetClass === row.asset_class && selection.month === i + 1
+                  const key = `${row.asset_class}:${i + 1}`
                   return (
                     <td
                       key={i}
                       onClick={() => select(row.asset_class, i + 1)}
+                      onContextMenu={(e) => notes.onContextMenu(key, e)}
+                      onMouseEnter={(e) => notes.onHoverStart(key, e)}
+                      onMouseLeave={() => notes.onHoverEnd(key)}
                       title={cell.error ?? undefined}
                       className={`relative cursor-pointer px-2 py-2.5 text-right ${
                         isSelected ? 'ring-1 ring-inset ring-accent' : ''
@@ -294,13 +328,7 @@ export default function ForecastTable({
                         : cell.value_cents === null
                           ? ''
                           : formatCentsWhole(cell.value_cents)}
-                      {cell.override && (
-                        <span
-                          className="absolute right-0 top-0 border-8 border-transparent border-r-accent border-t-accent"
-                          style={{ borderWidth: '5px' }}
-                          title="Cel heeft een eigen formule"
-                        />
-                      )}
+                      {notes.hasNote(key) && <NoteMarker />}
                     </td>
                   )
                 })}
@@ -330,6 +358,7 @@ export default function ForecastTable({
           </tbody>
         </table>
       </div>
+      {notes.overlays}
     </section>
   )
 }
