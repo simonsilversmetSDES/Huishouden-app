@@ -295,6 +295,18 @@ function YearlyReturns({ years, benchmark }: { years: YearReturn[]; benchmark: B
                   <span className="font-medium">
                     <YearPct pct={y.return_pct} />
                   </span>
+                  <div className="mt-1 space-y-0.5 text-xs text-ink-3">
+                    <div>
+                      {y.net_flow_cents >= 0 ? 'gestort: ' : 'afgenomen: '}
+                      <span className="text-ink-2">
+                        {formatCents(Math.abs(y.net_flow_cents))}
+                      </span>
+                    </div>
+                    <div>
+                      {y.year === new Date().getFullYear() ? 'waarde nu: ' : 'eindwaarde: '}
+                      <span className="text-ink-2">{formatCents(y.end_value_cents)}</span>
+                    </div>
+                  </div>
                   {bench && (
                     <div className="mt-1 border-t border-line pt-1 text-xs text-ink-3">
                       referentie: <YearPct pct={bench.return_pct} />
