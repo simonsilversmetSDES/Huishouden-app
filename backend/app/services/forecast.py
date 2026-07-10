@@ -184,9 +184,6 @@ class _Chain:
             return stored, False
         return DEFAULT_FORMULAS[asset_class], True
 
-    def is_override(self, asset_class: AssetClass, month: date) -> bool:
-        return (asset_class, month.year, month.month) in self.overrides
-
     def step(self, month: date) -> None:
         """Reken één maand door voor alle klassen."""
         lookup = self.budget_for_month(month)
@@ -233,10 +230,12 @@ def build_forecast_matrix(
             continue
         for asset_class in ASSET_ORDER:
             error = chain.errors.get(asset_class)
+            override = chain.overrides.get((asset_class, month.year, month.month))
             forecast_cells[(asset_class, month)] = ForecastCellOut(
                 value_cents=None if error else to_cents(chain.values[asset_class]),
                 kind="error" if error else "forecast",
-                override=chain.is_override(asset_class, month),
+                override=override is not None,
+                override_formula=override,
                 error=error,
             )
 

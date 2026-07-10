@@ -16,6 +16,7 @@ import type {
   CategoryPayload,
   CategoryType,
 } from '../api/types'
+import ForecastTable from '../components/ForecastTable'
 import { formatCentsWhole, MAAND_KORT, parseEuroToCents } from '../lib/format'
 import { useAppState } from '../state/AppState'
 
@@ -25,6 +26,9 @@ export default function Budget() {
   const [matrix, setMatrix] = useState<BudgetMatrix | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [catError, setCatError] = useState<string | null>(null)
+  // De forecast rekent met budgetcellen en categorieën: na elke mutatie herladen.
+  const [forecastRefresh, setForecastRefresh] = useState(0)
+  const bumpForecast = useCallback(() => setForecastRefresh((k) => k + 1), [])
 
   const load = useCallback(() => {
     if (contextId === null) return
@@ -43,8 +47,9 @@ export default function Budget() {
         body: JSON.stringify({ items }),
       })
       load()
+      bumpForecast()
     },
-    [load],
+    [load, bumpForecast],
   )
 
   const saveNote = useCallback(
@@ -66,6 +71,7 @@ export default function Budget() {
       try {
         await api<Category>('/api/categories', { method: 'POST', body: JSON.stringify(payload) })
         load()
+        bumpForecast()
         return true
       } catch (err) {
         setCatError(
@@ -93,11 +99,12 @@ export default function Budget() {
       try {
         await api<void>(`/api/categories/${id}`, { method: 'DELETE' })
         load()
+        bumpForecast()
       } catch {
         setCatError('Categorie verwijderen mislukt — probeer opnieuw')
       }
     },
-    [load],
+    [load, bumpForecast],
   )
 
   return (
@@ -159,6 +166,13 @@ export default function Budget() {
         cellen · <strong>Delete</strong> wist de selectie · Enter = opslaan · Esc = annuleren ·
         rechtsklik = notitie
       </p>
+
+      {/* Vermogensforecast ("Status balans"), in dezelfde brede kolom als de matrix. */}
+      {!error && (
+        <div className="relative left-1/2 w-[94vw] max-w-[1440px] -translate-x-1/2">
+          <ForecastTable contextId={contextId} year={year} refreshKey={forecastRefresh} />
+        </div>
+      )}
     </div>
   )
 }

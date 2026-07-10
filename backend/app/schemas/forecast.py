@@ -15,6 +15,7 @@ class ForecastCellOut(BaseModel):
     value_cents: int | None  # None = blanco (werkelijke maand zonder waarde) of error
     kind: CellKind
     override: bool = False  # cel heeft een eigen formule-override
+    override_formula: str | None = None  # de override-tekst, voor de formulebalk
     error: str | None = None
 
 

@@ -187,6 +187,45 @@ export interface NetWorthPayload {
   value_cents: number
 }
 
+// Vermogensforecast ("Status balans" uit de Excel).
+export type ForecastCellKind = 'werkelijk' | 'forecast' | 'error'
+
+export interface ForecastCell {
+  value_cents: number | null
+  kind: ForecastCellKind
+  override: boolean
+  override_formula: string | null
+  error: string | null
+}
+
+export interface ForecastRow {
+  asset_class: AssetClass
+  formula: string
+  is_default: boolean
+  warnings: string[]
+  cells: ForecastCell[] // 12 maanden
+}
+
+export interface ForecastMatrix {
+  context_id: number
+  year: number
+  last_actual_month: string | null
+  rows: ForecastRow[]
+  totals: ForecastCell[]
+}
+
+export interface ForecastFormulaPayload {
+  context_id: number
+  asset_class: AssetClass
+  year?: number | null
+  month?: number | null
+  formula: string
+}
+
+export interface ForecastNetWorth {
+  rows: NetWorthRow[] // eerste rij = laatste werkelijke maand (verbindingspunt)
+}
+
 // Beleggingen (spec §7). Hoeveelheden/koersen als exacte Decimal-strings; geld als centen.
 export type SecuritySide = 'buy' | 'sell'
 
