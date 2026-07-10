@@ -162,9 +162,10 @@ export default function Budget() {
 
       <p className="text-xs text-ink-3">
         Klik een cel om te bewerken · sleep of Shift/Ctrl-klik om meerdere cellen te
-        selecteren · typ een bedrag en <strong>Ctrl+Enter</strong> vult alle geselecteerde
-        cellen · <strong>Delete</strong> wist de selectie · Enter = opslaan · Esc = annuleren ·
-        rechtsklik = notitie
+        selecteren · sleep het <strong>blauwe hoekje</strong> om waarden door te trekken
+        (zoals in Excel) · typ een bedrag en <strong>Ctrl+Enter</strong> vult alle
+        geselecteerde cellen · <strong>Delete</strong> wist de selectie · Enter = opslaan ·
+        Esc = annuleren · rechtsklik = notitie
       </p>
 
       {/* Vermogensforecast ("Status balans"), in dezelfde brede kolom als de matrix. */}
@@ -187,6 +188,9 @@ interface MatrixTableProps {
 }
 
 const cellKey = (categoryId: number, month: number) => `${categoryId}:${month}`
+
+/** Omhullende rechthoek van een selectie, in rij-indexen en maandnummers. */
+type FillRect = { r1: number; r2: number; m1: number; m2: number }
 
 function MatrixTable({
   matrix,
@@ -253,6 +257,57 @@ function MatrixTable({
     [],
   )
 
+  // Omhullende rechthoek van de selectie; null zolang de selectie niet exact
+  // rechthoekig is (bv. losse Ctrl-klik-cellen) — dan geen vulgreepje.
+  const selRect = useMemo((): FillRect | null => {
+    if (selected.size === 0) return null
+    let r1 = Infinity
+    let r2 = -1
+    let m1 = 13
+    let m2 = 0
+    for (const key of selected) {
+      const [cid, m] = key.split(':').map(Number)
+      const r = rowIndexByCat.get(cid)
+      if (r === undefined) return null
+      r1 = Math.min(r1, r)
+      r2 = Math.max(r2, r)
+      m1 = Math.min(m1, m)
+      m2 = Math.max(m2, m)
+    }
+    if ((r2 - r1 + 1) * (m2 - m1 + 1) !== selected.size) return null
+    return { r1, r2, m1, m2 }
+  }, [selected, rowIndexByCat])
+
+  // Doortrekken (Excel-vulgreepje): sleep het hoekje van de selectie om de
+  // waarden patroon-herhalend naar de doelcellen te kopiëren.
+  const [fillPreview, setFillPreview] = useState<Set<string> | null>(null)
+  const fillingRef = useRef(false)
+  const fillRectRef = useRef<FillRect | null>(null)
+  const fillTargetRef = useRef<{ row: number; month: number } | null>(null)
+
+  /** Doelcellen (bron uitgezonderd) voor een sleep naar (row, month); horizontaal
+   * wint wanneer de muis buiten de maandkolommen van de bron staat. */
+  const fillTargetKeys = useCallback(
+    (rect: FillRect, row: number, month: number): Set<string> => {
+      const set = new Set<string>()
+      if (month > rect.m2) {
+        for (let r = rect.r1; r <= rect.r2; r++)
+          for (let m = rect.m2 + 1; m <= month; m++) set.add(cellKey(orderedRef.current[r], m))
+      } else if (month < rect.m1) {
+        for (let r = rect.r1; r <= rect.r2; r++)
+          for (let m = month; m < rect.m1; m++) set.add(cellKey(orderedRef.current[r], m))
+      } else if (row > rect.r2) {
+        for (let r = rect.r2 + 1; r <= row; r++)
+          for (let m = rect.m1; m <= rect.m2; m++) set.add(cellKey(orderedRef.current[r], m))
+      } else if (row < rect.r1) {
+        for (let r = row; r < rect.r1; r++)
+          for (let m = rect.m1; m <= rect.m2; m++) set.add(cellKey(orderedRef.current[r], m))
+      }
+      return set
+    },
+    [],
+  )
+
   const openEditor = useCallback((categoryId: number, month: number, initialText?: string) => {
     const cents = centsRef.current.get(cellKey(categoryId, month)) ?? 0
     setEditText(initialText ?? (cents !== 0 ? String(Math.round(cents / 100)) : ''))
@@ -291,6 +346,40 @@ function MatrixTable({
     },
     [onSave, year],
   )
+
+  /** Rond het doortrekken af: kopieer de bronwaarden patroon-herhalend (zoals
+   * Excel tegelt bij een bron van meerdere cellen) naar de doelcellen. */
+  const commitFill = useCallback(async () => {
+    const rect = fillRectRef.current
+    const target = fillTargetRef.current
+    fillingRef.current = false
+    fillRectRef.current = null
+    fillTargetRef.current = null
+    setFillPreview(null)
+    if (!rect || !target) return
+    const keys = fillTargetKeys(rect, target.row, target.month)
+    if (keys.size === 0) return
+    const width = rect.m2 - rect.m1 + 1
+    const height = rect.r2 - rect.r1 + 1
+    const mod = (n: number, d: number) => ((n % d) + d) % d
+    const horizontal = target.month > rect.m2 || target.month < rect.m1
+    const items = [...keys].map((k) => {
+      const [cid, m] = k.split(':').map(Number)
+      const r = rowIndexByCat.get(cid) ?? rect.r1
+      const srcCid = horizontal ? cid : orderedRef.current[rect.r1 + mod(r - rect.r1, height)]
+      const srcMonth = horizontal ? rect.m1 + mod(m - rect.m1, width) : m
+      const cents = centsRef.current.get(cellKey(srcCid, srcMonth)) ?? 0
+      return { category_id: cid, year, month: m, amount_cents: cents }
+    })
+    setBusy(true)
+    try {
+      await onSave(items)
+      // Excel-gedrag: na het doortrekken is bron + doel samen geselecteerd.
+      setSelected((prev) => new Set([...prev, ...keys]))
+    } finally {
+      setBusy(false)
+    }
+  }, [fillTargetKeys, rowIndexByCat, onSave, year])
 
   const clearCells = useCallback(
     async (keys: string[]) => {
@@ -344,16 +433,37 @@ function MatrixTable({
   }
 
   function onCellMouseEnter(categoryId: number, month: number) {
-    if (!draggingRef.current || !anchorRef.current) return
     const row = rowIndexByCat.get(categoryId)
     if (row === undefined) return
+    if (fillingRef.current && fillRectRef.current) {
+      fillTargetRef.current = { row, month }
+      setFillPreview(fillTargetKeys(fillRectRef.current, row, month))
+      return
+    }
+    if (!draggingRef.current || !anchorRef.current) return
     movedRef.current = true
     setSelected(rectKeys(anchorRef.current.row, anchorRef.current.month, row, month))
   }
 
-  // Muis loslaten (waar dan ook): sleep beëindigen; een klik zonder beweging → editor.
+  function onFillHandleMouseDown(e: React.MouseEvent) {
+    // Niet doorgeven aan de cel: het greepje start doortrekken, geen nieuwe selectie.
+    e.preventDefault()
+    e.stopPropagation()
+    if (selRect === null || busy) return
+    fillingRef.current = true
+    fillRectRef.current = selRect
+    fillTargetRef.current = null
+    setFillPreview(new Set())
+  }
+
+  // Muis loslaten (waar dan ook): doortrekken afronden of sleep beëindigen; een
+  // klik zonder beweging → editor.
   useEffect(() => {
     function onUp() {
+      if (fillingRef.current) {
+        void commitFill()
+        return
+      }
       if (!draggingRef.current) return
       draggingRef.current = false
       // Klik zonder sleepbeweging → editor openen (een lopende commit van een andere
@@ -365,12 +475,20 @@ function MatrixTable({
     }
     window.addEventListener('mouseup', onUp)
     return () => window.removeEventListener('mouseup', onUp)
-  }, [openEditor])
+  }, [openEditor, commitFill])
 
   // Typen op een selectie zonder open editor: opent de editor op de anker-cel met de
   // ingetypte toets; Delete/Backspace wist de selectie; Esc heft de selectie op.
   useEffect(() => {
     function onKey(e: globalThis.KeyboardEvent) {
+      if (e.key === 'Escape' && fillingRef.current) {
+        // Doortrekken annuleren zonder op te slaan.
+        fillingRef.current = false
+        fillRectRef.current = null
+        fillTargetRef.current = null
+        setFillPreview(null)
+        return
+      }
       if (editingRef.current !== null) return
       const sel = selectedRef.current
       if (sel.size === 0) return
@@ -452,6 +570,13 @@ function MatrixTable({
   const cellCtrl: CellController = {
     isSelected: (cid, m) => selected.has(cellKey(cid, m)),
     isEditing: (cid, m) => editing?.categoryId === cid && editing.month === m,
+    isFillPreview: (cid, m) => fillPreview?.has(cellKey(cid, m)) ?? false,
+    // Het vulgreepje zit op de cel rechtsonder van een rechthoekige selectie.
+    hasFillHandle: (cid, m) =>
+      selRect !== null &&
+      !busy &&
+      orderedCats[selRect.r2] === cid &&
+      selRect.m2 === m,
     editText,
     invalid,
     busy,
@@ -459,6 +584,7 @@ function MatrixTable({
     notes,
     onCellMouseDown,
     onCellMouseEnter,
+    onFillHandleMouseDown,
     onEditChange: (v) => {
       setEditText(v)
       setInvalid(false)
@@ -530,6 +656,8 @@ function tbaClass(cents: number): string {
 interface CellController {
   isSelected: (categoryId: number, month: number) => boolean
   isEditing: (categoryId: number, month: number) => boolean
+  isFillPreview: (categoryId: number, month: number) => boolean
+  hasFillHandle: (categoryId: number, month: number) => boolean
   editText: string
   invalid: boolean
   busy: boolean
@@ -541,6 +669,7 @@ interface CellController {
     e: React.MouseEvent<HTMLTableCellElement>,
   ) => void
   onCellMouseEnter: (categoryId: number, month: number) => void
+  onFillHandleMouseDown: (e: React.MouseEvent) => void
   onEditChange: (value: string) => void
   onEditKeyDown: (e: KeyboardEvent<HTMLInputElement>) => void
   onEditBlur: () => void
@@ -653,6 +782,7 @@ function Cell({
   }
 
   const key = cellKey(categoryId, month)
+  const fillPreview = ctrl.isFillPreview(categoryId, month)
 
   return (
     <td
@@ -664,11 +794,22 @@ function Cell({
       onMouseLeave={() => ctrl.notes.onHoverEnd(key)}
       onContextMenu={(e) => ctrl.notes.onContextMenu(key, e)}
       className={`relative cursor-cell px-2 py-1 text-right transition-colors ${
-        selected ? 'bg-accent/15 ring-1 ring-inset ring-accent' : 'hover:bg-raised'
+        selected
+          ? 'bg-accent/15 ring-1 ring-inset ring-accent'
+          : fillPreview
+            ? 'bg-accent/5 ring-1 ring-inset ring-accent/50'
+            : 'hover:bg-raised'
       }`}
     >
       {ctrl.notes.hasNote(key) && <NoteMarker />}
       {cents !== 0 ? formatCentsWhole(cents) : <span className="text-ink-3">·</span>}
+      {ctrl.hasFillHandle(categoryId, month) && (
+        <span
+          onMouseDown={ctrl.onFillHandleMouseDown}
+          title="Doortrekken: sleep om de waarden te kopiëren"
+          className="absolute -bottom-[3px] -right-[3px] z-10 size-2 cursor-crosshair border border-white bg-accent"
+        />
+      )}
     </td>
   )
 }
