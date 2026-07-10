@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type KeyboardEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { api, ApiError } from '../api/client'
 import type {
   AssetClass,
@@ -74,6 +74,80 @@ export default function ForecastTable({
     },
   })
 
+  // Doortrekken (Excel-vulgreepje): sleep de formule van een forecastcel als
+  // override naar andere maanden in dezelfde rij; werkelijke maanden slaan we over.
+  const [fillPreview, setFillPreview] = useState<Set<number> | null>(null)
+  const fillingRef = useRef(false)
+  const fillSourceRef = useRef<{ assetClass: AssetClass; month: number; formula: string } | null>(null)
+  const fillTargetsRef = useRef<number[]>([])
+
+  /** Doelmaanden tussen bron en muispositie (bron zelf uitgezonderd), enkel cellen
+   * die geen werkelijke maand zijn. */
+  const fillTargetMonths = useCallback(
+    (row: ForecastRow, source: number, hover: number): number[] => {
+      const [from, to] = hover > source ? [source + 1, hover] : [hover, source - 1]
+      const months: number[] = []
+      for (let m = from; m <= to; m++) {
+        if (row.cells[m - 1].kind !== 'werkelijk') months.push(m)
+      }
+      return months
+    },
+    [],
+  )
+
+  const commitFill = useCallback(async () => {
+    const source = fillSourceRef.current
+    const targets = fillTargetsRef.current
+    fillingRef.current = false
+    fillSourceRef.current = null
+    fillTargetsRef.current = []
+    setFillPreview(null)
+    if (contextId === null || source === null || targets.length === 0) return
+    setBusy(true)
+    setSaveError(null)
+    try {
+      for (const month of targets) {
+        await api<void>('/api/forecast/formulas', {
+          method: 'PUT',
+          body: JSON.stringify({
+            context_id: contextId,
+            asset_class: source.assetClass,
+            year,
+            month,
+            formula: source.formula,
+          } satisfies ForecastFormulaPayload),
+        })
+      }
+      load()
+    } catch (err) {
+      setSaveError(
+        err instanceof ApiError ? err.message : 'Doortrekken mislukt — probeer opnieuw',
+      )
+    } finally {
+      setBusy(false)
+    }
+  }, [contextId, year, load])
+
+  useEffect(() => {
+    function onUp() {
+      if (fillingRef.current) void commitFill()
+    }
+    function onKey(e: globalThis.KeyboardEvent) {
+      if (e.key === 'Escape' && fillingRef.current) {
+        fillingRef.current = false
+        fillSourceRef.current = null
+        fillTargetsRef.current = []
+        setFillPreview(null)
+      }
+    }
+    window.addEventListener('mouseup', onUp)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('mouseup', onUp)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [commitFill])
+
   const selectedRow: ForecastRow | null =
     selection !== null ? (rowByClass.get(selection.assetClass) ?? null) : null
   const selectedCell =
@@ -97,6 +171,31 @@ export default function ForecastTable({
     setSelection({ assetClass, month })
     setEditText(effectiveFormula(row, month))
     setSaveError(null)
+  }
+
+  function onFillHandleMouseDown(e: React.MouseEvent) {
+    // Niet doorgeven aan de cel: het greepje start doortrekken, geen nieuwe selectie.
+    e.preventDefault()
+    e.stopPropagation()
+    if (selection === null || selection.month === null || busy) return
+    const row = rowByClass.get(selection.assetClass)
+    if (row === undefined) return
+    fillingRef.current = true
+    fillSourceRef.current = {
+      assetClass: selection.assetClass,
+      month: selection.month,
+      formula: effectiveFormula(row, selection.month),
+    }
+    fillTargetsRef.current = []
+    setFillPreview(new Set())
+  }
+
+  function onCellFillHover(row: ForecastRow, month: number) {
+    const source = fillSourceRef.current
+    if (!fillingRef.current || source === null || row.asset_class !== source.assetClass) return
+    const targets = fillTargetMonths(row, source.month, month)
+    fillTargetsRef.current = targets
+    setFillPreview(new Set(targets))
   }
 
   const put = useCallback(
@@ -194,7 +293,8 @@ export default function ForecastTable({
         {selection === null || selectedRow === null ? (
           <p className="text-xs text-ink-3">
             Klik een rijnaam om de formule van die rij te bekijken of te bewerken, of een
-            forecastcel voor een override in één maand. Beschikbaar:{' '}
+            forecastcel voor een override in één maand; sleep het blauwe hoekje van een
+            geselecteerde cel om die formule door te trekken. Beschikbaar:{' '}
             <code className="rounded bg-raised px-1">vorige</code>,{' '}
             <code className="rounded bg-raised px-1">kapitaalaflossing</code> (lening, die
             maand) en <code className="rounded bg-raised px-1">budget("Categorie")</code>{' '}
@@ -304,17 +404,27 @@ export default function ForecastTable({
                 {row.cells.map((cell, i) => {
                   const isSelected =
                     selection?.assetClass === row.asset_class && selection.month === i + 1
+                  const inFillPreview =
+                    selection?.assetClass === row.asset_class &&
+                    (fillPreview?.has(i + 1) ?? false)
                   const key = `${row.asset_class}:${i + 1}`
                   return (
                     <td
                       key={i}
                       onClick={() => select(row.asset_class, i + 1)}
                       onContextMenu={(e) => notes.onContextMenu(key, e)}
-                      onMouseEnter={(e) => notes.onHoverStart(key, e)}
+                      onMouseEnter={(e) => {
+                        onCellFillHover(row, i + 1)
+                        notes.onHoverStart(key, e)
+                      }}
                       onMouseLeave={() => notes.onHoverEnd(key)}
                       title={cell.error ?? undefined}
                       className={`relative cursor-pointer px-2 py-2.5 text-right ${
-                        isSelected ? 'ring-1 ring-inset ring-accent' : ''
+                        isSelected
+                          ? 'ring-1 ring-inset ring-accent'
+                          : inFillPreview
+                            ? 'bg-accent/5 ring-1 ring-inset ring-accent/50'
+                            : ''
                       } ${
                         cell.kind === 'error'
                           ? 'text-crit'
@@ -329,6 +439,13 @@ export default function ForecastTable({
                           ? ''
                           : formatCentsWhole(cell.value_cents)}
                       {notes.hasNote(key) && <NoteMarker />}
+                      {isSelected && cell.kind !== 'werkelijk' && !busy && (
+                        <span
+                          onMouseDown={onFillHandleMouseDown}
+                          title="Doortrekken: sleep om deze formule als override te kopiëren"
+                          className="absolute -bottom-[3px] -right-[3px] z-10 size-2 cursor-crosshair border border-white bg-accent"
+                        />
+                      )}
                     </td>
                   )
                 })}
