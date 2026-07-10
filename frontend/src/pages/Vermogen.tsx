@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import {
   Area,
-  AreaChart,
   Bar,
   BarChart,
   CartesianGrid,
+  ComposedChart,
+  Line,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -17,6 +18,7 @@ import type {
   AccountStatus,
   AccountType,
   AssetClass,
+  ForecastNetWorth,
   NetWorth,
   NetWorthRow,
   NetWorthSummary,
@@ -614,7 +616,11 @@ function NetWorthSection({ contextId }: { contextId: number }) {
           {rows.length > 0 && (
             <>
               <VermogenDonuts selectedIds={selectedIds} activaRows={donutRows} investRows={investRows} />
-              <NetWorthEvolution data={data} excludeWoning={excludeWoning} />
+              <NetWorthEvolution
+                data={data}
+                excludeWoning={excludeWoning}
+                selectedIds={selectedIds}
+              />
             </>
           )}
         </>
@@ -705,16 +711,42 @@ function VermogenDonuts({
 // Het vroegere woning-invoerformulier is weg: de woning-waarde per persoon wordt
 // automatisch afgeleid uit de lening/woning-module (spec §8) — zie de Lening-tab.
 
-function NetWorthEvolution({ data, excludeWoning }: { data: NetWorth; excludeWoning: boolean }) {
+function NetWorthEvolution({
+  data,
+  excludeWoning,
+  selectedIds,
+}: {
+  data: NetWorth
+  excludeWoning: boolean
+  selectedIds: number[]
+}) {
   const [hidden, setHidden] = useState<Set<AssetClass>>(new Set())
   const [fromYear, setFromYear] = useState<number | null>(null)
   const [toYear, setToYear] = useState<number | null>(null)
 
-  const years = useMemo(
-    () =>
-      [...new Set(data.rows.map((r) => Number(r.snapshot_date.slice(0, 4))))].sort((a, b) => a - b),
-    [data.rows],
-  )
+  // Forecast ("Status balans" op de Budget-tab), als gestippelde totaallijn.
+  const [showForecast, setShowForecast] = useState(false)
+  const [forecast, setForecast] = useState<ForecastNetWorth | null>(null)
+
+  useEffect(() => {
+    if (!showForecast) return
+    setForecast(null)
+    api<ForecastNetWorth>(
+      `/api/forecast/net-worth?${selectedIds.map((id) => `context_ids=${id}`).join('&')}`,
+    )
+      .then(setForecast)
+      .catch(() => setForecast(null))
+  }, [showForecast, selectedIds])
+
+  const forecastRows = showForecast && forecast ? forecast.rows : []
+
+  const years = useMemo(() => {
+    const all = [
+      ...data.rows.map((r) => Number(r.snapshot_date.slice(0, 4))),
+      ...forecastRows.map((r) => Number(r.snapshot_date.slice(0, 4))),
+    ]
+    return [...new Set(all)].sort((a, b) => a - b)
+  }, [data.rows, forecastRows])
 
   // Activaklassen die effectief in de data voorkomen, in vaste volgorde; woning
   // valt weg wanneer "zonder woning" bovenaan aan staat.
@@ -728,17 +760,34 @@ function NetWorthEvolution({ data, excludeWoning }: { data: NetWorth; excludeWon
   const effFrom = fromYear ?? years[0]
   const effTo = toYear ?? years[years.length - 1]
 
-  const chartData = data.rows
-    .filter((r) => {
-      const y = Number(r.snapshot_date.slice(0, 4))
-      return y >= effFrom && y <= effTo
-    })
-    .map((r) => {
+  const inRange = (r: NetWorthRow) => {
+    const y = Number(r.snapshot_date.slice(0, 4))
+    return y >= effFrom && y <= effTo
+  }
+
+  // Forecast-totalen per maandlabel; het eerste forecastpunt valt samen met de
+  // laatste werkelijke maand (verbindingspunt), latere maanden worden extra punten.
+  const actualLabels = new Set(data.rows.map((r) => monthLabel(r.snapshot_date)))
+  const forecastByLabel = new Map<string, number>()
+  const forecastExtra: Record<string, number | string>[] = []
+  for (const row of forecastRows.filter(inRange)) {
+    const label = monthLabel(row.snapshot_date)
+    const total = rowTotalExcl(row, excludeWoning)
+    if (actualLabels.has(label)) forecastByLabel.set(label, total)
+    else forecastExtra.push({ label, forecast: total })
+  }
+
+  const chartData = [
+    ...data.rows.filter(inRange).map((r) => {
       const byClass = new Map(r.assets.map((a) => [a.asset_class, a.value_cents]))
       const point: Record<string, number | string> = { label: monthLabel(r.snapshot_date) }
       for (const ac of shownClasses) point[ac] = byClass.get(ac) ?? 0
+      const fc = forecastByLabel.get(point.label as string)
+      if (fc !== undefined) point.forecast = fc
       return point
-    })
+    }),
+    ...forecastExtra,
+  ]
 
   function toggle(ac: AssetClass) {
     setHidden((prev) => {
@@ -753,6 +802,15 @@ function NetWorthEvolution({ data, excludeWoning }: { data: NetWorth; excludeWon
     <div className="flex flex-col rounded-2xl border border-edge bg-surface p-5">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <h3 className="text-sm font-medium text-ink-2">Nettowaarde-evolutie</h3>
+        <label className="flex cursor-pointer items-center gap-1.5 text-xs text-ink-3">
+          <input
+            type="checkbox"
+            checked={showForecast}
+            onChange={(e) => setShowForecast(e.target.checked)}
+            className="accent-accent"
+          />
+          Forecast
+        </label>
         {years.length > 1 && (
           <div className="ml-auto flex items-center gap-1.5 text-xs text-ink-3">
             <span>van</span>
@@ -813,7 +871,7 @@ function NetWorthEvolution({ data, excludeWoning }: { data: NetWorth; excludeWon
 
       <div className="mt-4 h-56">
         <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={chartData}>
+          <ComposedChart data={chartData}>
             <CartesianGrid vertical={false} stroke="#e1e0d9" />
             <XAxis
               dataKey="label"
@@ -831,7 +889,9 @@ function NetWorthEvolution({ data, excludeWoning }: { data: NetWorth; excludeWon
             <Tooltip
               formatter={(value, name) => [
                 formatCents(value as number),
-                ASSET_CLASS_LABEL[name as AssetClass] ?? name,
+                name === 'forecast'
+                  ? 'Forecast'
+                  : (ASSET_CLASS_LABEL[name as AssetClass] ?? name),
               ]}
               contentStyle={{
                 backgroundColor: '#ffffff',
@@ -853,7 +913,18 @@ function NetWorthEvolution({ data, excludeWoning }: { data: NetWorth; excludeWon
                 isAnimationActive={false}
               />
             ))}
-          </AreaChart>
+            {showForecast && (
+              <Line
+                type="monotone"
+                dataKey="forecast"
+                stroke="#555550"
+                strokeWidth={1.5}
+                strokeDasharray="6 4"
+                dot={false}
+                isAnimationActive={false}
+              />
+            )}
+          </ComposedChart>
         </ResponsiveContainer>
       </div>
     </div>
