@@ -3,6 +3,7 @@
 from app.models.base import Base
 from app.models.budget import Budget, BudgetNote
 from app.models.core import Account, Category, Context, User
+from app.models.forecast import ForecastFormula
 from app.models.investments import (
     Security,
     SecurityPrice,
@@ -21,6 +22,7 @@ __all__ = [
     "Category",
     "Budget",
     "BudgetNote",
+    "ForecastFormula",
     "Transaction",
     "Import",
     "CategorizationRule",
