@@ -17,6 +17,7 @@ import type {
   YearReturn,
 } from '../api/types'
 import DonutCard from '../components/DonutCard'
+import PriceChartModal from '../components/PriceChartModal'
 import { formatCents, formatCentsPlain, formatDate } from '../lib/format'
 import { useAppState } from '../state/AppState'
 
@@ -63,6 +64,7 @@ export default function Beleggingen() {
   const [notice, setNotice] = useState<string | null>(null)
   const [editing, setEditing] = useState<Security | null>(null)
   const [viewingTx, setViewingTx] = useState<{ id: number; name: string } | null>(null)
+  const [chart, setChart] = useState<{ id: number; name: string; ticker: string } | null>(null)
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const knownRef = useRef<Set<number>>(new Set())
   const autoFetchedRef = useRef(false)
@@ -183,6 +185,7 @@ export default function Beleggingen() {
             onToggle={toggle}
             onEdit={setEditing}
             onViewTransactions={(id, name) => setViewingTx({ id, name })}
+            onShowChart={(id, name, ticker) => setChart({ id, name, ticker })}
           />
           <RealizedGains portfolio={portfolio} />
           <EntrySection
@@ -201,6 +204,15 @@ export default function Beleggingen() {
             setEditing(null)
             load()
           }}
+        />
+      )}
+
+      {chart && (
+        <PriceChartModal
+          securityId={chart.id}
+          name={chart.name}
+          ticker={chart.ticker}
+          onClose={() => setChart(null)}
         />
       )}
 
@@ -362,6 +374,7 @@ function PositionsTable({
   onToggle,
   onEdit,
   onViewTransactions,
+  onShowChart,
 }: {
   portfolio: Portfolio
   securities: Security[]
@@ -370,6 +383,7 @@ function PositionsTable({
   onToggle: (securityId: number) => void
   onEdit: (security: Security) => void
   onViewTransactions: (securityId: number, name: string) => void
+  onShowChart: (securityId: number, name: string, ticker: string) => void
 }) {
   if (portfolio.positions.length === 0) {
     return (
@@ -387,9 +401,8 @@ function PositionsTable({
             <th className="py-3 pl-5 pr-1" />
             <th className="px-3 py-3 text-left font-medium">Effect</th>
             <th className="px-3 py-3 text-right font-medium">Aantal</th>
-            <th className="px-3 py-3 text-right font-medium">Gem. aankoop</th>
             <th className="px-3 py-3 text-right font-medium">Koers</th>
-            <th className="px-3 py-3 text-right font-medium">Waarde</th>
+            <th className="px-3 py-3 text-right font-medium">Dagwinst/-verlies</th>
             <th className="px-3 py-3 text-right font-medium">Winst/verlies</th>
             <th className="px-3 py-3 text-right font-medium">% port.</th>
             <th className="px-5 py-3" />
@@ -419,18 +432,39 @@ function PositionsTable({
                   />
                 </td>
                 <td className="px-3 py-2">
-                  {p.name}
                   {p.ticker ? (
-                    <span className="ml-2 text-xs text-ink-3">{p.ticker}</span>
+                    <button
+                      onClick={() => onShowChart(p.security_id, p.name, p.ticker as string)}
+                      title="Koersgrafiek tonen"
+                      className="text-left hover:text-accent hover:underline"
+                    >
+                      {p.name}
+                      <span className="ml-2 text-xs text-ink-3">{p.ticker}</span>
+                    </button>
                   ) : (
-                    <span className="ml-2 text-xs text-warn">geen ticker</span>
+                    <>
+                      {p.name}
+                      <span className="ml-2 text-xs text-warn">geen ticker</span>
+                    </>
                   )}
                 </td>
                 <td className="px-3 py-2 text-right">{dec(p.shares)}</td>
-                <td className="px-3 py-2 text-right text-ink-2">{dec2(p.avg_buy_price)}</td>
                 <td className="px-3 py-2 text-right text-ink-2">{dec2(p.current_price)}</td>
                 <td className="px-3 py-2 text-right">
-                  {p.value_cents !== null ? formatCentsPlain(p.value_cents) : '–'}
+                  {p.day_gain_cents === null ? (
+                    <span className="text-ink-3">–</span>
+                  ) : (
+                    <span className={p.day_gain_cents < 0 ? 'text-crit' : 'text-good'}>
+                      {p.day_gain_cents > 0 ? '+' : ''}
+                      {formatCentsPlain(p.day_gain_cents)}
+                      {p.day_gain_pct !== null && (
+                        <span className="ml-1 text-xs text-ink-3">
+                          ({p.day_gain_pct > 0 ? '+' : ''}
+                          {pctFmt.format(p.day_gain_pct)} %)
+                        </span>
+                      )}
+                    </span>
+                  )}
                 </td>
                 <td className="px-3 py-2 text-right">
                   {p.gain_cents === null ? (

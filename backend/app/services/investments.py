@@ -47,15 +47,19 @@ SIX = Decimal("0.000001")
 PRICE_TOLERANCE_DAYS = 45
 
 
-def _latest_prices(db: Session, security_ids: list[int]) -> dict[int, Decimal]:
-    """Recentste koers per effect (op datum)."""
-    latest: dict[int, Decimal] = {}
+def _latest_prices(
+    db: Session, security_ids: list[int]
+) -> dict[int, tuple[Decimal, Decimal | None]]:
+    """Recentste én voorlaatste koers per effect (op datum) — de voorlaatste dient
+    voor de dagwinst/-verlieskolom (verschil met de vorige koersdag)."""
+    latest: dict[int, tuple[Decimal, Decimal | None]] = {}
     for price in db.scalars(
         select(SecurityPrice)
         .where(SecurityPrice.security_id.in_(security_ids))
         .order_by(SecurityPrice.date)
     ):
-        latest[price.security_id] = price.price  # oplopend gesorteerd → laatste wint
+        previous = latest.get(price.security_id)  # oplopend gesorteerd → laatste wint
+        latest[price.security_id] = (price.price, previous[0] if previous else None)
     return latest
 
 
@@ -128,9 +132,21 @@ def build_portfolio(db: Session, context: Context, today: date | None = None) ->
         avg = (total_bought / shares_bought).quantize(SIX, ROUND_HALF_UP) if shares_bought else None
 
         cost_cents = to_cents(avg * net) if avg is not None else 0
-        price = latest.get(security.id)
+        price, prev_price = latest.get(security.id, (None, None))
         value_cents = to_cents(price * net) if price is not None else None
         gain_cents = value_cents - cost_cents if value_cents is not None else None
+        # Dagwinst = waarde nu − waarde aan de voorlaatste koers (zelfde afronding
+        # als de waardekolom, dus de bedragen sluiten op elkaar aan).
+        day_gain_cents = (
+            value_cents - to_cents(prev_price * net)
+            if value_cents is not None and prev_price is not None
+            else None
+        )
+        day_gain_pct = (
+            float((price / prev_price - 1) * 100)
+            if price is not None and prev_price is not None and prev_price != ZERO
+            else None
+        )
 
         computed.append(
             {
@@ -141,6 +157,8 @@ def build_portfolio(db: Session, context: Context, today: date | None = None) ->
                 "price": price,
                 "value_cents": value_cents,
                 "gain_cents": gain_cents,
+                "day_gain_cents": day_gain_cents,
+                "day_gain_pct": day_gain_pct,
             }
         )
         total_cost += cost_cents
@@ -183,6 +201,8 @@ def build_portfolio(db: Session, context: Context, today: date | None = None) ->
                 value_cents=value_cents,
                 gain_cents=gain_cents,
                 gain_pct=_pct(gain_cents, cost_cents) if gain_cents is not None else None,
+                day_gain_cents=row["day_gain_cents"],
+                day_gain_pct=row["day_gain_pct"],
                 portfolio_pct=_pct(value_cents, total_value) or 0.0
                 if value_cents is not None
                 else 0.0,

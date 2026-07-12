@@ -11,7 +11,7 @@ koersen-fetch). Koersen komen als float uit yfinance → altijd via Decimal(str(
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 
 from sqlalchemy import select
@@ -255,6 +255,67 @@ def fetch_price_history(
         result.fetched += written
         result.per_security[security.name] = written
     return result
+
+
+# Yahoo Finance-tijdsblokken voor de koersgrafiek: periode → (yfinance-period,
+# interval). Intraday voor 1D/5D, dagkoersen voor de middellange blokken en
+# week-/maandkoersen voor de lange trend — dezelfde verdichting als Yahoo zelf.
+CHART_RANGES: dict[str, tuple[str, str]] = {
+    "1d": ("1d", "5m"),
+    "5d": ("5d", "15m"),
+    "1mo": ("1mo", "1d"),
+    "6mo": ("6mo", "1d"),
+    "ytd": ("ytd", "1d"),
+    "1y": ("1y", "1d"),
+    "5y": ("5y", "1wk"),
+    "max": ("max", "1mo"),
+}
+
+
+@dataclass
+class ChartPoint:
+    t: datetime
+    price: Decimal
+
+
+@dataclass
+class ChartHistory:
+    currency: str | None
+    prev_close: Decimal | None  # slotkoers vorige beursdag (referentielijn op 1D)
+    points: list[ChartPoint]
+
+
+def fetch_chart_history(ticker_symbol: str, chart_range: str) -> ChartHistory:
+    """Koersreeks voor de grafiek-popup, live van Yahoo (niet gecachet).
+
+    Bewust in de noteringsmunt van het effect — dit is dezelfde weergave als
+    Yahoo Finance, geen waardeberekening in euro. yfinance wordt lui geïmporteerd
+    zodat de tests geen netwerk raken.
+    """
+    import yfinance  # lui geïmporteerd: enkel nodig bij een echte fetch
+
+    period, interval = CHART_RANGES[chart_range]
+    ticker = yfinance.Ticker(ticker_symbol)
+    fast_info = getattr(ticker, "fast_info", None)
+    currency = fast_info.get("currency") if fast_info is not None else None
+    raw_prev = fast_info.get("previousClose") if fast_info is not None else None
+    prev_close = Decimal(str(raw_prev)).quantize(_SIX) if raw_prev is not None else None
+
+    hist = ticker.history(period=period, interval=interval)
+    points: list[ChartPoint] = []
+    if hist is not None and not hist.empty:
+        for timestamp, raw in hist["Close"].items():
+            # NaN (nog geen slot voor dit interval) overslaan, zoals bij de backfill.
+            if raw is None or raw != raw:
+                continue
+            price = Decimal(str(raw))
+            if price > 0:
+                points.append(ChartPoint(t=timestamp.to_pydatetime(), price=price.quantize(_SIX)))
+    return ChartHistory(
+        currency=currency if isinstance(currency, str) else None,
+        prev_close=prev_close,
+        points=points,
+    )
 
 
 def _fetch_one(yfinance: object, ticker_symbol: str) -> tuple[Decimal, str | None]:

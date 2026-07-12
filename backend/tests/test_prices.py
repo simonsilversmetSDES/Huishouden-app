@@ -11,7 +11,13 @@ from sqlalchemy.orm import Session
 from app.config import Settings, get_settings
 from app.main import app
 from app.models import Context, Security, SecurityPrice
-from app.services.prices import _fetch_history_one, _nearest_rate, to_eur
+from app.services.prices import (
+    ChartHistory,
+    ChartPoint,
+    _fetch_history_one,
+    _nearest_rate,
+    to_eur,
+)
 
 
 class TestToEur:
@@ -120,6 +126,45 @@ class TestManualPrice:
             json={"security_id": sec.id, "date": "2026-07-01", "price": "-5"},
         )
         assert resp.status_code == 422
+
+
+class TestChartHistory:
+    """Grafiek-endpoint (Yahoo-tijdsblokken); de echte fetch wordt gemockt."""
+
+    def test_zonder_ticker_422(self, logged_in: TestClient, seeded_db: Session) -> None:
+        sec = _security(seeded_db, name="Fonds zonder ticker", ticker=None)
+        resp = logged_in.get(f"/api/securities/{sec.id}/history", params={"range": "1d"})
+        assert resp.status_code == 422
+
+    def test_onbekende_periode_422(self, logged_in: TestClient, seeded_db: Session) -> None:
+        sec = _security(seeded_db)
+        resp = logged_in.get(f"/api/securities/{sec.id}/history", params={"range": "2w"})
+        assert resp.status_code == 422
+
+    def test_geeft_reeks_terug(
+        self, logged_in: TestClient, seeded_db: Session, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from datetime import datetime
+
+        from app.routes import securities as routes
+
+        sec = _security(seeded_db)
+        fake = ChartHistory(
+            currency="EUR",
+            prev_close=Decimal("100.5"),
+            points=[
+                ChartPoint(t=datetime(2026, 7, 10, 9, 0), price=Decimal("100.5")),
+                ChartPoint(t=datetime(2026, 7, 10, 9, 5), price=Decimal("101.25")),
+            ],
+        )
+        monkeypatch.setattr(routes, "fetch_chart_history", lambda *_args: fake)
+        resp = logged_in.get(f"/api/securities/{sec.id}/history", params={"range": "1d"})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["range"] == "1d"
+        assert body["currency"] == "EUR"
+        assert body["prev_close"] == "100.5"
+        assert [p["price"] for p in body["points"]] == ["100.5", "101.25"]
 
 
 class TestFetchGate:

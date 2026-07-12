@@ -121,6 +121,45 @@ class TestStockSplit:
         assert pos.shares == "10"
 
 
+class TestDagwinst:
+    def test_dagwinst_uit_laatste_twee_koersen(self, seeded_db: Session) -> None:
+        ctx = _context(seeded_db)
+        sec = _security(seeded_db, ctx, "DAG")
+        _tx(seeded_db, sec, date(2025, 1, 1), SecuritySide.BUY, "10", "100", "1000.00")
+        _price(seeded_db, sec, date(2026, 7, 10), "100")
+        _price(seeded_db, sec, date(2026, 7, 11), "102.50")
+        seeded_db.commit()
+
+        pos = build_portfolio(seeded_db, ctx).positions[0]
+        # (102,50 − 100) × 10 = € 25,00; koers +2,5 %
+        assert pos.day_gain_cents == 2500
+        assert pos.day_gain_pct == pytest.approx(2.5, abs=1e-9)
+
+    def test_dagverlies_negatief(self, seeded_db: Session) -> None:
+        ctx = _context(seeded_db)
+        sec = _security(seeded_db, ctx, "DAG")
+        _tx(seeded_db, sec, date(2025, 1, 1), SecuritySide.BUY, "4", "50", "200.00")
+        _price(seeded_db, sec, date(2026, 7, 10), "50")
+        _price(seeded_db, sec, date(2026, 7, 11), "49")
+        seeded_db.commit()
+
+        pos = build_portfolio(seeded_db, ctx).positions[0]
+        # (49 − 50) × 4 = € −4,00; koers −2 %
+        assert pos.day_gain_cents == -400
+        assert pos.day_gain_pct == pytest.approx(-2.0, abs=1e-9)
+
+    def test_een_koers_geen_dagwinst(self, seeded_db: Session) -> None:
+        ctx = _context(seeded_db)
+        sec = _security(seeded_db, ctx, "DAG")
+        _tx(seeded_db, sec, date(2025, 1, 1), SecuritySide.BUY, "10", "100", "1000.00")
+        _price(seeded_db, sec, date(2026, 7, 11), "102")
+        seeded_db.commit()
+
+        pos = build_portfolio(seeded_db, ctx).positions[0]
+        assert pos.day_gain_cents is None
+        assert pos.day_gain_pct is None
+
+
 class TestPortefeuille:
     def test_totalen_en_netto_aantal(self, seeded_db: Session) -> None:
         ctx = _context(seeded_db)

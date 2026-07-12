@@ -312,7 +312,26 @@ export interface Position {
   value_cents: number | null
   gain_cents: number | null
   gain_pct: number | null
+  day_gain_cents: number | null // (laatste koers − voorlaatste koers) × aantal
+  day_gain_pct: number | null
   portfolio_pct: number
+}
+
+// Koersgrafiek-popup (Yahoo-tijdsblokken); prijzen in de noteringsmunt.
+export type ChartRange = '1d' | '5d' | '1mo' | '6mo' | 'ytd' | '1y' | '5y' | 'max'
+
+export interface PricePoint {
+  t: string // ISO-datetime
+  price: string // exacte Decimal-string
+}
+
+export interface PriceHistory {
+  security_id: number
+  ticker: string
+  range: ChartRange
+  currency: string | null
+  prev_close: string | null // slotkoers vorige beursdag (referentielijn op 1D)
+  points: PricePoint[]
 }
 
 export interface RealizedGain {

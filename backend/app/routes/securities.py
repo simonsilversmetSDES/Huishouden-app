@@ -3,7 +3,7 @@
 from decimal import Decimal, InvalidOperation
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
@@ -13,6 +13,8 @@ from app.database import get_db
 from app.models import Context, Security, SecurityPrice, SecuritySplit, SecurityTransaction
 from app.schemas.investments import (
     PortfolioOut,
+    PriceHistoryOut,
+    PricePointOut,
     SecurityIn,
     SecurityOut,
     SecuritySearchHit,
@@ -22,7 +24,7 @@ from app.schemas.investments import (
     SecurityTransactionOut,
 )
 from app.services.investments import build_portfolio
-from app.services.prices import search_symbols
+from app.services.prices import CHART_RANGES, fetch_chart_history, search_symbols
 from app.services.securities import InvalidAmountError, apply_transaction, suggest_ticker
 
 router = APIRouter(tags=["investments"])
@@ -169,6 +171,42 @@ def delete_security(
     db.execute(delete(SecurityPrice).where(SecurityPrice.security_id == security_id))
     db.delete(security)
     db.commit()
+
+
+@router.get("/api/securities/{security_id}/history", response_model=PriceHistoryOut)
+def security_history(
+    security_id: int,
+    _user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+    settings: Annotated[Settings, Depends(get_settings)],
+    chart_range: Annotated[str, Query(alias="range")] = "1y",
+) -> PriceHistoryOut:
+    """Koersreeks voor de grafiek-popup, live van Yahoo (Yahoo-tijdsblokken)."""
+    security = _get_security(db, security_id)
+    if not settings.price_fetch_enabled:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, detail="Koersen ophalen is uitgeschakeld"
+        )
+    if not security.ticker:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Effect heeft geen ticker"
+        )
+    if chart_range not in CHART_RANGES:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Onbekende periode")
+    try:
+        history = fetch_chart_history(security.ticker, chart_range)
+    except Exception as exc:  # netwerk-/parse-fout bij Yahoo
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY, detail="Koershistoriek ophalen mislukt"
+        ) from exc
+    return PriceHistoryOut(
+        security_id=security.id,
+        ticker=security.ticker,
+        range=chart_range,
+        currency=history.currency,
+        prev_close=str(history.prev_close) if history.prev_close is not None else None,
+        points=[PricePointOut(t=p.t, price=str(p.price)) for p in history.points],
+    )
 
 
 # --- Transactielog ---

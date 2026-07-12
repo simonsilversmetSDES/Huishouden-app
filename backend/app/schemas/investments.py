@@ -6,7 +6,7 @@ Twee soorten getallen over de draad:
   prijs per stuk, gemiddelde aankoopprijs met 6 decimalen) — nooit als float.
 """
 
-from datetime import date
+from datetime import date, datetime
 
 from pydantic import BaseModel
 
@@ -90,6 +90,22 @@ class SecurityPriceOut(BaseModel):
     source: str
 
 
+class PricePointOut(BaseModel):
+    t: datetime  # tijdstip van het interval (intraday) of de beursdag
+    price: str  # exacte Decimal-string, in de noteringsmunt
+
+
+class PriceHistoryOut(BaseModel):
+    """Koersreeks voor de grafiek-popup (Yahoo-tijdsblokken), in noteringsmunt."""
+
+    security_id: int
+    ticker: str
+    range: str  # één van CHART_RANGES (1d, 5d, 1mo, 6mo, ytd, 1y, 5y, max)
+    currency: str | None
+    prev_close: str | None  # slotkoers vorige beursdag (referentielijn op 1D)
+    points: list[PricePointOut]
+
+
 class PriceFetchResult(BaseModel):
     fetched: int
     failed: list[str]  # tickers/namen die niet opgehaald konden worden
@@ -106,6 +122,8 @@ class PositionOut(BaseModel):
     value_cents: int | None
     gain_cents: int | None
     gain_pct: float | None
+    day_gain_cents: int | None  # (laatste koers − voorlaatste koers) × aantal
+    day_gain_pct: float | None  # koersverandering t.o.v. de voorlaatste koersdag
     portfolio_pct: float
 
 
