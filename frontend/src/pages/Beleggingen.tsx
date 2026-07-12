@@ -366,6 +366,26 @@ function Tile({
   )
 }
 
+/** Winst-cel: bedrag met percentage eronder — vermijdt omslaande regels. */
+function GainCell({ cents, pct }: { cents: number | null; pct: number | null }) {
+  if (cents === null) return <span className="text-ink-3">–</span>
+  const tone = cents < 0 ? 'text-crit' : cents > 0 ? 'text-good' : 'text-ink-3'
+  return (
+    <div className="leading-tight">
+      <div className={tone}>
+        {cents > 0 ? '+' : ''}
+        {formatCentsPlain(cents)}
+      </div>
+      {pct !== null && (
+        <div className="text-xs text-ink-3">
+          {pct > 0 ? '+' : ''}
+          {pctFmt.format(pct)} %
+        </div>
+      )}
+    </div>
+  )
+}
+
 function PositionsTable({
   portfolio,
   securities,
@@ -393,23 +413,34 @@ function PositionsTable({
     )
   }
   const byId = new Map(securities.map((s) => [s.id, s]))
+  // Grootste positie bovenaan; effecten zonder waarde onderaan.
+  const rows = [...portfolio.positions].sort(
+    (a, b) => (b.value_cents ?? -1) - (a.value_cents ?? -1),
+  )
+  const visible = rows.filter((p) => selected.has(p.security_id))
+  const dayCells = visible.map((p) => p.day_gain_cents).filter((c): c is number => c !== null)
+  const totalDay = dayCells.length > 0 ? dayCells.reduce((sum, c) => sum + c, 0) : null
+  const totalCost = visible.reduce((sum, p) => sum + p.cost_cents, 0)
+  const totalGain = selectedTotalValue - totalCost
+  const th = 'px-3 py-3 text-right text-xs font-medium uppercase tracking-wide'
   return (
     <section className="overflow-x-auto rounded-2xl border border-edge bg-surface">
-      <table className="w-full min-w-[920px] text-sm">
+      <table className="w-full min-w-[980px] text-sm">
         <thead>
-          <tr className="border-b border-line text-xs text-ink-3">
+          <tr className="border-b border-line text-ink-3">
             <th className="py-3 pl-5 pr-1" />
-            <th className="px-3 py-3 text-left font-medium">Effect</th>
-            <th className="px-3 py-3 text-right font-medium">Aantal</th>
-            <th className="px-3 py-3 text-right font-medium">Koers</th>
-            <th className="px-3 py-3 text-right font-medium">Dagwinst/-verlies</th>
-            <th className="px-3 py-3 text-right font-medium">Winst/verlies</th>
-            <th className="px-3 py-3 text-right font-medium">% port.</th>
+            <th className={`${th} text-left`}>Effect</th>
+            <th className={th}>Aantal</th>
+            <th className={th}>Koers</th>
+            <th className={th}>Waarde</th>
+            <th className={th}>Vandaag</th>
+            <th className={th}>Winst/verlies</th>
+            <th className={th}>% port.</th>
             <th className="px-5 py-3" />
           </tr>
         </thead>
         <tbody className="tabular-nums">
-          {portfolio.positions.map((p) => {
+          {rows.map((p) => {
             const on = selected.has(p.security_id)
             const pct =
               on && p.value_cents !== null && selectedTotalValue > 0
@@ -418,11 +449,11 @@ function PositionsTable({
             return (
               <tr
                 key={p.security_id}
-                className={`border-b border-line last:border-b-0 hover:bg-raised/50 ${
-                  on ? '' : 'opacity-45'
+                className={`border-b border-line transition-opacity last:border-b-0 hover:bg-raised/50 ${
+                  on ? '' : 'opacity-40'
                 }`}
               >
-                <td className="py-2 pl-5 pr-1">
+                <td className="py-2.5 pl-5 pr-1">
                   <input
                     type="checkbox"
                     checked={on}
@@ -431,80 +462,97 @@ function PositionsTable({
                     className="size-4 accent-accent"
                   />
                 </td>
-                <td className="px-3 py-2">
+                <td className="px-3 py-2.5">
                   {p.ticker ? (
                     <button
                       onClick={() => onShowChart(p.security_id, p.name, p.ticker as string)}
                       title="Koersgrafiek tonen"
-                      className="text-left hover:text-accent hover:underline"
+                      className="group block text-left leading-tight"
                     >
-                      {p.name}
-                      <span className="ml-2 text-xs text-ink-3">{p.ticker}</span>
+                      <span className="font-medium group-hover:text-accent group-hover:underline">
+                        {p.name}
+                      </span>
+                      <span className="mt-0.5 block font-mono text-[11px] tracking-wide text-ink-3">
+                        {p.ticker}
+                      </span>
                     </button>
                   ) : (
-                    <>
-                      {p.name}
-                      <span className="ml-2 text-xs text-warn">geen ticker</span>
-                    </>
+                    <div className="leading-tight">
+                      <span className="font-medium">{p.name}</span>
+                      <span className="mt-0.5 block text-[11px] text-warn">geen ticker</span>
+                    </div>
                   )}
                 </td>
-                <td className="px-3 py-2 text-right">{dec(p.shares)}</td>
-                <td className="px-3 py-2 text-right text-ink-2">{dec2(p.current_price)}</td>
-                <td className="px-3 py-2 text-right">
-                  {p.day_gain_cents === null ? (
-                    <span className="text-ink-3">–</span>
+                <td className="px-3 py-2.5 text-right text-ink-2">{dec(p.shares)}</td>
+                <td className="px-3 py-2.5 text-right text-ink-2">{dec2(p.current_price)}</td>
+                <td className="px-3 py-2.5 text-right font-medium">
+                  {p.value_cents === null ? (
+                    <span className="font-normal text-ink-3">–</span>
                   ) : (
-                    <span className={p.day_gain_cents < 0 ? 'text-crit' : 'text-good'}>
-                      {p.day_gain_cents > 0 ? '+' : ''}
-                      {formatCentsPlain(p.day_gain_cents)}
-                      {p.day_gain_pct !== null && (
-                        <span className="ml-1 text-xs text-ink-3">
-                          ({p.day_gain_pct > 0 ? '+' : ''}
-                          {pctFmt.format(p.day_gain_pct)} %)
-                        </span>
-                      )}
-                    </span>
+                    formatCentsPlain(p.value_cents)
                   )}
                 </td>
-                <td className="px-3 py-2 text-right">
-                  {p.gain_cents === null ? (
-                    <span className="text-ink-3">–</span>
+                <td className="px-3 py-2.5 text-right">
+                  <GainCell cents={p.day_gain_cents} pct={p.day_gain_pct} />
+                </td>
+                <td className="px-3 py-2.5 text-right">
+                  <GainCell cents={p.gain_cents} pct={p.gain_pct} />
+                </td>
+                <td className="px-3 py-2.5 text-right text-ink-2">
+                  {pct !== null ? (
+                    <div className="flex items-center justify-end gap-2">
+                      <span>{pctFmt.format(pct)} %</span>
+                      <span className="h-1.5 w-12 shrink-0 overflow-hidden rounded-full bg-raised">
+                        <span
+                          className="block h-full rounded-full bg-saving/70"
+                          style={{ width: `${Math.min(100, pct)}%` }}
+                        />
+                      </span>
+                    </div>
                   ) : (
-                    <span className={p.gain_cents < 0 ? 'text-crit' : 'text-good'}>
-                      {p.gain_cents > 0 ? '+' : ''}
-                      {formatCentsPlain(p.gain_cents)}
-                      {p.gain_pct !== null && (
-                        <span className="ml-1 text-xs text-ink-3">
-                          ({p.gain_pct > 0 ? '+' : ''}
-                          {pctFmt.format(p.gain_pct)} %)
-                        </span>
-                      )}
-                    </span>
+                    <span className="text-ink-3">–</span>
                   )}
                 </td>
-                <td className="px-3 py-2 text-right text-ink-3">
-                  {pct !== null ? `${pctFmt.format(pct)} %` : '–'}
-                </td>
-                <td className="whitespace-nowrap px-5 py-2 text-right">
-                <button
-                  onClick={() => onViewTransactions(p.security_id, p.name)}
-                  className="text-xs text-ink-3 hover:text-ink-2 hover:underline"
-                >
-                  Transacties
-                </button>
-                {byId.has(p.security_id) && (
+                <td className="whitespace-nowrap px-5 py-2.5 text-right">
                   <button
-                    onClick={() => onEdit(byId.get(p.security_id) as Security)}
-                    className="ml-3 text-xs text-ink-3 hover:text-ink-2 hover:underline"
+                    onClick={() => onViewTransactions(p.security_id, p.name)}
+                    className="text-xs text-ink-3 hover:text-ink-2 hover:underline"
                   >
-                    Bewerken
+                    Transacties
                   </button>
-                )}
-              </td>
-            </tr>
+                  {byId.has(p.security_id) && (
+                    <button
+                      onClick={() => onEdit(byId.get(p.security_id) as Security)}
+                      className="ml-3 text-xs text-ink-3 hover:text-ink-2 hover:underline"
+                    >
+                      Bewerken
+                    </button>
+                  )}
+                </td>
+              </tr>
             )
           })}
         </tbody>
+        <tfoot className="tabular-nums">
+          <tr className="border-t-2 border-line bg-raised/40 font-medium">
+            <td className="py-2.5 pl-5 pr-1" />
+            <td className="px-3 py-2.5">Totaal</td>
+            <td />
+            <td />
+            <td className="px-3 py-2.5 text-right">{formatCentsPlain(selectedTotalValue)}</td>
+            <td className="px-3 py-2.5 text-right">
+              <GainCell cents={totalDay} pct={null} />
+            </td>
+            <td className="px-3 py-2.5 text-right">
+              <GainCell
+                cents={totalGain}
+                pct={totalCost > 0 ? (totalGain / totalCost) * 100 : null}
+              />
+            </td>
+            <td />
+            <td className="px-5 py-2.5" />
+          </tr>
+        </tfoot>
       </table>
     </section>
   )
