@@ -15,7 +15,12 @@ from sqlalchemy.orm import Session
 from app.models import Context, Security, SecurityPrice, SecuritySplit, SecurityTransaction
 from app.models.enums import SecuritySide
 from app.schemas.investments import RealizedYearOut
-from app.services.investments import benchmark_yearly_returns, build_portfolio, yearly_returns
+from app.services.investments import (
+    benchmark_yearly_returns,
+    build_portfolio,
+    portfolio_history,
+    yearly_returns,
+)
 
 
 def _context(db: Session, name: str = "Simon") -> Context:
@@ -378,3 +383,114 @@ class TestBenchmark:
         pf = build_portfolio(seeded_db, ctx, today=date(2025, 12, 31))
         assert pf.benchmark is not None
         assert [y.year for y in pf.benchmark.years] == [y.year for y in pf.yearly_returns]
+
+
+class TestPortfolioHistory:
+    """Tijdreeks inleg (kostbasis) vs. waarde per effect, voor de waarde/inleg-grafiek.
+
+    Zelfde rekenregels als build_portfolio, maar dan op elke roosterdatum:
+    inleg = gemiddelde aankoopprijs-tot-dan × netto aantal-tot-dan; waarde =
+    recentste koers op of vóór de datum × netto aantal (None zolang er geen
+    koers bestaat en er wél een positie is)."""
+
+    def test_inleg_en_waarde_per_datum(self, seeded_db: Session) -> None:
+        ctx = _context(seeded_db)
+        sec = _security(seeded_db, ctx, "HIST")
+        _tx(seeded_db, sec, date(2026, 1, 5), SecuritySide.BUY, "10", "100", "1000.00")
+        _price(seeded_db, sec, date(2026, 1, 31), "110")
+        _tx(seeded_db, sec, date(2026, 3, 1), SecuritySide.BUY, "5", "120", "600.00")
+        _price(seeded_db, sec, date(2026, 4, 1), "130")
+        seeded_db.commit()
+
+        hist = portfolio_history(seeded_db, ctx, today=date(2026, 7, 1))
+        # Rooster = transactiedatums ∪ koersdatums ∪ vandaag
+        assert hist.dates == [
+            date(2026, 1, 5), date(2026, 1, 31), date(2026, 3, 1),
+            date(2026, 4, 1), date(2026, 7, 1),
+        ]
+        assert len(hist.series) == 1
+        serie = hist.series[0]
+        assert serie.security_id == sec.id
+        # Inleg: 10×100 = 1000; na bijkoop avg = 1600/15 = 106,666667 × 15 → 1600,00
+        assert [p.cost_cents for p in serie.points] == [
+            100000, 100000, 160000, 160000, 160000,
+        ]
+        # Waarde: geen koers vóór 31/01 → None; daarna recentste koers × aantal
+        assert [p.value_cents for p in serie.points] == [
+            None, 110000, 165000, 195000, 195000,
+        ]
+
+    def test_verkoop_verlaagt_inleg_met_gemiddelde(self, seeded_db: Session) -> None:
+        ctx = _context(seeded_db)
+        sec = _security(seeded_db, ctx, "SELL")
+        _tx(seeded_db, sec, date(2026, 1, 1), SecuritySide.BUY, "10", "100", "1000.00")
+        _tx(seeded_db, sec, date(2026, 2, 1), SecuritySide.SELL, "4", "150", "600.00")
+        _price(seeded_db, sec, date(2026, 3, 1), "150")
+        seeded_db.commit()
+
+        serie = portfolio_history(seeded_db, ctx, today=date(2026, 3, 15)).series[0]
+        # Na verkoop: kostbasis = avg 100 × 6 = 600 (niet 1000 − 600 opbrengst)
+        assert [p.cost_cents for p in serie.points] == [100000, 60000, 60000, 60000]
+        assert [p.value_cents for p in serie.points] == [None, None, 90000, 90000]
+
+    def test_split_aantallen_in_huidige_eenheden(self, seeded_db: Session) -> None:
+        # Koersen volgen de yfinance-conventie (terugwerkend split-gecorrigeerd),
+        # dus ook vóór de splitdatum rekent de reeks in post-split eenheden.
+        ctx = _context(seeded_db)
+        sec = _security(seeded_db, ctx, "SPLIT")
+        _tx(seeded_db, sec, date(2026, 1, 1), SecuritySide.BUY, "2", "100", "200.00")
+        seeded_db.add(
+            SecuritySplit(security_id=sec.id, date=date(2026, 2, 1), ratio=Decimal("25"))
+        )
+        _price(seeded_db, sec, date(2026, 3, 1), "4.40")
+        seeded_db.commit()
+
+        serie = portfolio_history(seeded_db, ctx, today=date(2026, 3, 15)).series[0]
+        # 2×25 = 50 stuks; inleg blijft € 200; waarde = 4,40 × 50 = € 220
+        assert [p.cost_cents for p in serie.points] == [20000, 20000, 20000]
+        assert [p.value_cents for p in serie.points] == [None, 22000, 22000]
+
+    def test_rooster_start_bij_eerste_transactie(self, seeded_db: Session) -> None:
+        # Backfill-koersen van vóór de eerste aankoop horen niet in het rooster
+        # (anders begint de grafiek met een lange platte nul-lijn).
+        ctx = _context(seeded_db)
+        sec = _security(seeded_db, ctx, "TRIM")
+        _price(seeded_db, sec, date(2025, 12, 1), "100")
+        _tx(seeded_db, sec, date(2026, 1, 10), SecuritySide.BUY, "10", "100", "1000.00")
+        seeded_db.commit()
+
+        hist = portfolio_history(seeded_db, ctx, today=date(2026, 2, 1))
+        assert hist.dates == [date(2026, 1, 10), date(2026, 2, 1)]
+        serie = hist.series[0]
+        # De oudere koers telt wél mee als recentste koers op de startdatum
+        assert [p.value_cents for p in serie.points] == [100000, 100000]
+
+    def test_twee_effecten_gedeeld_rooster_en_effect_zonder_transacties_weg(
+        self, seeded_db: Session
+    ) -> None:
+        ctx = _context(seeded_db)
+        a = _security(seeded_db, ctx, "A")
+        b = _security(seeded_db, ctx, "B")
+        _security(seeded_db, ctx, "LEEG")  # geen transacties → geen reeks
+        _tx(seeded_db, a, date(2026, 1, 1), SecuritySide.BUY, "10", "100", "1000.00")
+        _tx(seeded_db, b, date(2026, 2, 1), SecuritySide.BUY, "5", "200", "1000.00")
+        _price(seeded_db, a, date(2026, 3, 1), "110")
+        _price(seeded_db, b, date(2026, 3, 1), "180")
+        seeded_db.commit()
+
+        hist = portfolio_history(seeded_db, ctx, today=date(2026, 3, 1))
+        assert hist.dates == [date(2026, 1, 1), date(2026, 2, 1), date(2026, 3, 1)]
+        assert [s.name for s in hist.series] == ["A", "B"]
+        by_name = {s.name: s for s in hist.series}
+        # B heeft vóór zijn eerste aankoop een lege positie: inleg 0 en waarde 0
+        assert [p.cost_cents for p in by_name["B"].points] == [0, 100000, 100000]
+        assert [p.value_cents for p in by_name["B"].points] == [0, None, 90000]
+        assert [p.value_cents for p in by_name["A"].points] == [None, None, 110000]
+
+    def test_geen_transacties_geeft_leeg(self, seeded_db: Session) -> None:
+        ctx = _context(seeded_db)
+        _security(seeded_db, ctx, "LEEG")
+        seeded_db.commit()
+        hist = portfolio_history(seeded_db, ctx, today=date(2026, 1, 1))
+        assert hist.dates == []
+        assert hist.series == []

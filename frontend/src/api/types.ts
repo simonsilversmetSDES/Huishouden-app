@@ -384,6 +384,23 @@ export interface Portfolio {
   benchmark: Benchmark | null
 }
 
+export interface PortfolioSeriesPoint {
+  cost_cents: number // inleg (kostbasis) op die datum
+  value_cents: number | null // null = positie zonder gekende koers op die datum
+}
+
+export interface PortfolioSeries {
+  security_id: number
+  name: string
+  points: PortfolioSeriesPoint[] // parallel aan PortfolioHistory.dates
+}
+
+export interface PortfolioHistory {
+  context_id: number
+  dates: string[] // ISO-datums: transactiedatums ∪ koersdatums ∪ vandaag
+  series: PortfolioSeries[]
+}
+
 export interface SecurityPricePayload {
   security_id: number
   date: string

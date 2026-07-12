@@ -29,7 +29,10 @@ from app.models.enums import AssetClass, SecuritySide
 from app.schemas.investments import (
     BenchmarkOut,
     BenchmarkYearOut,
+    PortfolioHistoryOut,
     PortfolioOut,
+    PortfolioSeriesOut,
+    PortfolioSeriesPointOut,
     PositionOut,
     RealizedGainOut,
     RealizedYearOut,
@@ -357,6 +360,86 @@ def beleggingen_by_class_history(
         if totals:
             out[on] = totals
     return out
+
+
+def portfolio_history(
+    db: Session, context: Context, today: date | None = None
+) -> PortfolioHistoryOut:
+    """Tijdreeks inleg (kostbasis) vs. waarde per effect, voor de waarde/inleg-grafiek.
+
+    Rooster = transactiedatums ∪ koersdatums ∪ vandaag, vanaf de eerste transactie.
+    Per effect en roosterdatum: inleg = gemiddelde aankoopprijs-tot-dan × netto
+    aantal (zelfde formule als build_portfolio, dus op de laatste datum sluit de
+    reeks exact aan op de "Totale inleg"-tegel); waarde = recentste koers op of
+    vóór de datum × netto aantal. Waarde is None zolang er wél een positie maar
+    nog geen enkele koers is; een lege positie telt als 0, zodat de frontend een
+    willekeurige selectie van effecten kan sommeren."""
+    if today is None:
+        today = date.today()
+    empty = PortfolioHistoryOut(context_id=context.id, dates=[], series=[])
+    securities = list(
+        db.scalars(
+            select(Security)
+            .where(Security.owner_context_id == context.id)
+            .order_by(Security.name)
+        )
+    )
+    if not securities:
+        return empty
+    by_security, splits_by_security, prices_by_security = _load_tx_history(
+        db, [s.id for s in securities]
+    )
+    active = [s for s in securities if by_security.get(s.id)]
+    if not active:
+        return empty
+
+    first = min(txns[0].date for s in active if (txns := by_security[s.id]))
+    grid_set = {today} | {tx.date for s in active for tx in by_security[s.id]}
+    grid_set |= {d for s in active for d, _ in prices_by_security.get(s.id, [])}
+    grid = sorted(d for d in grid_set if first <= d <= today)
+    if not grid:
+        return empty
+
+    series: list[PortfolioSeriesOut] = []
+    for security in active:
+        txns = by_security[security.id]
+        splits = splits_by_security.get(security.id, [])
+        prices = prices_by_security.get(security.id, [])
+        points: list[PortfolioSeriesPointOut] = []
+        ti = pi = 0
+        shares_bought = total_bought = net = ZERO
+        price: Decimal | None = None
+        for on in grid:
+            while ti < len(txns) and txns[ti].date <= on:
+                tx = txns[ti]
+                adjusted = tx.shares * _split_factor(splits, tx.date)
+                if tx.side == SecuritySide.BUY:
+                    shares_bought += adjusted
+                    total_bought += tx.total
+                    net += adjusted
+                else:
+                    net -= adjusted
+                ti += 1
+            while pi < len(prices) and prices[pi][0] <= on:
+                price = prices[pi][1]
+                pi += 1
+            avg = (
+                (total_bought / shares_bought).quantize(SIX, ROUND_HALF_UP)
+                if shares_bought
+                else None
+            )
+            cost_cents = to_cents(avg * net) if avg is not None else 0
+            if net == ZERO:
+                value_cents: int | None = 0
+            else:
+                value_cents = to_cents(price * net) if price is not None else None
+            points.append(
+                PortfolioSeriesPointOut(cost_cents=cost_cents, value_cents=value_cents)
+            )
+        series.append(
+            PortfolioSeriesOut(security_id=security.id, name=security.name, points=points)
+        )
+    return PortfolioHistoryOut(context_id=context.id, dates=grid, series=series)
 
 
 def benchmark_yearly_returns(

@@ -12,6 +12,7 @@ from app.config import Settings, get_settings
 from app.database import get_db
 from app.models import Context, Security, SecurityPrice, SecuritySplit, SecurityTransaction
 from app.schemas.investments import (
+    PortfolioHistoryOut,
     PortfolioOut,
     PriceHistoryOut,
     PricePointOut,
@@ -23,7 +24,7 @@ from app.schemas.investments import (
     SecurityTransactionIn,
     SecurityTransactionOut,
 )
-from app.services.investments import build_portfolio
+from app.services.investments import build_portfolio, portfolio_history
 from app.services.prices import CHART_RANGES, fetch_chart_history, search_symbols
 from app.services.securities import InvalidAmountError, apply_transaction, suggest_ticker
 
@@ -371,3 +372,14 @@ def portfolio(
 ) -> PortfolioOut:
     context = _get_context(db, context_id)
     return build_portfolio(db, context)
+
+
+@router.get("/api/portfolio/history", response_model=PortfolioHistoryOut)
+def portfolio_value_history(
+    _user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+    context_id: int,
+) -> PortfolioHistoryOut:
+    """Tijdreeks inleg vs. waarde per effect, voor de waarde/inleg-grafiek."""
+    context = _get_context(db, context_id)
+    return portfolio_history(db, context)

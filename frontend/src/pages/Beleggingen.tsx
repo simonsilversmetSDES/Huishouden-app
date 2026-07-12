@@ -3,6 +3,7 @@ import { api, ApiError } from '../api/client'
 import type {
   Benchmark,
   Portfolio,
+  PortfolioHistory,
   PriceFetchResult,
   Security,
   SecurityKind,
@@ -17,6 +18,7 @@ import type {
   YearReturn,
 } from '../api/types'
 import DonutCard from '../components/DonutCard'
+import PortfolioHistoryChart from '../components/PortfolioHistoryChart'
 import PriceChartModal from '../components/PriceChartModal'
 import { formatCents, formatCentsPlain, formatDate } from '../lib/format'
 import { useAppState } from '../state/AppState'
@@ -59,6 +61,7 @@ function normDec(input: string): string | null {
 export default function Beleggingen() {
   const { contextId } = useAppState()
   const [portfolio, setPortfolio] = useState<Portfolio | null>(null)
+  const [history, setHistory] = useState<PortfolioHistory | null>(null)
   const [securities, setSecurities] = useState<Security[]>([])
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -78,6 +81,9 @@ export default function Beleggingen() {
     api<Security[]>(`/api/securities?context_id=${contextId}`)
       .then(setSecurities)
       .catch(() => setSecurities([]))
+    api<PortfolioHistory>(`/api/portfolio/history?context_id=${contextId}`)
+      .then(setHistory)
+      .catch(() => setHistory(null))
   }, [contextId])
 
   useEffect(load, [load])
@@ -176,6 +182,7 @@ export default function Beleggingen() {
             gainPct={totalGainPct}
             donutRows={donutRows}
           />
+          <PortfolioHistoryChart history={history} selected={selected} />
           <YearlyReturns years={portfolio.yearly_returns} benchmark={portfolio.benchmark} />
           <PositionsTable
             portfolio={portfolio}

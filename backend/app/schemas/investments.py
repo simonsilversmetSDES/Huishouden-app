@@ -168,6 +168,27 @@ class BenchmarkOut(BaseModel):
     years: list[BenchmarkYearOut]
 
 
+class PortfolioSeriesPointOut(BaseModel):
+    """Eén roosterdatum van één effect in de waarde/inleg-tijdreeks."""
+
+    cost_cents: int  # inleg (kostbasis): gem. aankoopprijs-tot-dan × netto aantal
+    value_cents: int | None  # koers × aantal; None = positie zonder gekende koers
+
+
+class PortfolioSeriesOut(BaseModel):
+    security_id: int
+    name: str
+    points: list[PortfolioSeriesPointOut]  # parallel aan PortfolioHistoryOut.dates
+
+
+class PortfolioHistoryOut(BaseModel):
+    """Per-effect tijdreeksen zodat de frontend zelf een selectie kan sommeren."""
+
+    context_id: int
+    dates: list[date]  # rooster: transactiedatums ∪ koersdatums ∪ vandaag
+    series: list[PortfolioSeriesOut]
+
+
 class PortfolioOut(BaseModel):
     context_id: int
     positions: list[PositionOut]
