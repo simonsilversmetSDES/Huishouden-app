@@ -150,11 +150,11 @@ export default function PriceChartModal({
 
   return (
     <div
-      className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/30 p-4 pt-12"
+      className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/30 p-4 pt-12 max-md:items-end max-md:p-0"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-3xl rounded-2xl border border-edge bg-surface p-5 shadow-lg"
+        className="w-full max-w-3xl rounded-2xl border border-edge bg-surface p-5 shadow-lg max-md:max-h-[92dvh] max-md:overflow-y-auto max-md:rounded-b-none max-md:pb-[calc(1.25rem+env(safe-area-inset-bottom))]"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-baseline justify-between gap-3">

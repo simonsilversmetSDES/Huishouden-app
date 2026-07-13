@@ -568,12 +568,12 @@ function LoanForm({
 
   return (
     <div
-      className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/30 p-4 pt-10"
+      className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/30 p-4 pt-10 max-md:items-end max-md:p-0"
       onClick={onCancel}
     >
       <form
         onSubmit={submit}
-        className="w-full max-w-2xl space-y-5 rounded-2xl border border-edge bg-surface p-6 shadow-lg"
+        className="w-full max-w-2xl space-y-5 rounded-2xl border border-edge bg-surface p-6 shadow-lg max-md:max-h-[92dvh] max-md:overflow-y-auto max-md:rounded-b-none max-md:pb-[calc(1.5rem+env(safe-area-inset-bottom))]"
         onClick={(e) => e.stopPropagation()}
       >
         <h3 className="text-sm font-medium">Lening &amp; woning bewerken</h3>
