@@ -86,6 +86,15 @@ class TestLogin:
         assert "argon2" not in resp.text
 
 
+class TestSessionDuration:
+    def test_default_is_7_dagen(self) -> None:
+        assert Settings(_env_file=None).session_max_age_days == 7
+
+    def test_cookie_max_age_volgt_setting(self, client: TestClient) -> None:
+        resp = login(client)
+        assert f"Max-Age={7 * 86400}" in resp.headers["set-cookie"]
+
+
 class TestSessionProtection:
     def test_me_without_cookie_401(self, client: TestClient) -> None:
         assert client.get("/api/auth/me").status_code == 401

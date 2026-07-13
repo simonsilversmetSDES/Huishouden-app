@@ -50,7 +50,9 @@ class Settings(BaseSettings):
     account_iban_jozefien_zicht: str = ""
 
     session_cookie_name: str = "huishouden_session"
-    session_max_age_days: int = 30
+    # 7 dagen: kort genoeg voor een publiek bereikbare app met financiële data;
+    # geldt voor de cookie (max_age) én de servercheck (sessions.parse_session_value).
+    session_max_age_days: int = 7
     session_cookie_secure: bool = True
 
     # Rate limiting op de login: vanaf `max_attempts` mislukte pogingen wordt
