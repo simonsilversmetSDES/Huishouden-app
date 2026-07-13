@@ -78,7 +78,7 @@ export default function TrackedVsBudget({ months, selectedMonth }: TrackedVsBudg
           ))}
         </div>
       </div>
-      <div className="mt-4 h-64">
+      <div className="mt-4 h-64 max-md:h-56">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={data} barCategoryGap="12%" barGap={2}>
             <CartesianGrid vertical={false} stroke="#e1e0d9" />

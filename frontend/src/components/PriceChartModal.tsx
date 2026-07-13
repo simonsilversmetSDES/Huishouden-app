@@ -13,6 +13,7 @@ import {
 } from 'recharts'
 import { api, ApiError } from '../api/client'
 import type { ChartRange, PriceHistory } from '../api/types'
+import { useCoarsePointer } from '../lib/useMediaQuery'
 
 // Dezelfde tijdsblokken als Yahoo Finance; het interval kiest de backend.
 const RANGES: { key: ChartRange; label: string }[] = [
@@ -119,6 +120,7 @@ export default function PriceChartModal({
 
   // Ingezoomd venster als [start, eind]-index; null = volledige periode. Sleep-
   // selectie op de grafiek én de schuifbalk onderaan sturen dit aan.
+  const coarse = useCoarsePointer()
   const [zoom, setZoom] = useState<[number, number] | null>(null)
   const [dragStart, setDragStart] = useState<number | null>(null)
   const [dragEnd, setDragEnd] = useState<number | null>(null)
@@ -213,7 +215,7 @@ export default function PriceChartModal({
           {loading && <span className="ml-2 self-center text-xs text-ink-3">Laden…</span>}
         </div>
 
-        <div className="mt-3 h-80">
+        <div className="mt-3 h-80 touch-pan-y max-md:h-64">
           {error ? (
             <p className="flex h-full items-center justify-center text-sm text-crit">{error}</p>
           ) : data.length === 0 ? (
@@ -246,8 +248,11 @@ export default function PriceChartModal({
               <AreaChart
                 data={data}
                 margin={{ top: 4, right: 4, bottom: 0, left: 0 }}
-                style={{ cursor: 'crosshair' }}
+                // Sleep-zoom is muiswerk; op touch zoomen de periodeknoppen en
+                // moet slepen gewoon de pagina scrollen.
+                style={coarse ? undefined : { cursor: 'crosshair' }}
                 onMouseDown={(s) => {
+                  if (coarse) return
                   const i = Number(s?.activeLabel)
                   if (!Number.isNaN(i)) {
                     setDragStart(i)

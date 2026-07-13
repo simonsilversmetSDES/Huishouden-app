@@ -13,6 +13,7 @@ import {
 } from 'recharts'
 import type { PortfolioHistory } from '../api/types'
 import { MAAND_KORT, formatCents, formatCentsWhole, formatDate } from '../lib/format'
+import { useCoarsePointer } from '../lib/useMediaQuery'
 
 // Huisstijl-typekleuren (index.css): waarde = sparen-blauw, inleg = uitgaven-oranje
 // (wat je erin stak). Paar gevalideerd op CVD-afstand en contrast op wit.
@@ -122,6 +123,7 @@ export default function PortfolioHistoryChart({
   // Zowel de sleep-selectie op de grafiek als de schuifbalk onderaan sturen dit aan.
   const [range, setRange] = useState<[number, number] | null>(null)
   // Sleep-in-uitvoering op het grafiekvlak (in `i`-waarden, dus absolute indexen).
+  const coarse = useCoarsePointer()
   const [dragStart, setDragStart] = useState<number | null>(null)
   const [dragEnd, setDragEnd] = useState<number | null>(null)
 
@@ -213,7 +215,7 @@ export default function PortfolioHistoryChart({
         </div>
       </div>
 
-      <div className="mt-4 h-80">
+      <div className="mt-4 h-80 touch-pan-y max-md:h-64">
         {history === null ? (
           <p className="flex h-full items-center justify-center text-sm text-ink-3">Laden…</p>
         ) : data.length === 0 ? (
@@ -225,8 +227,10 @@ export default function PortfolioHistoryChart({
             <ComposedChart
               data={data}
               margin={{ top: 4, right: 4, bottom: 0, left: 0 }}
-              style={{ cursor: 'crosshair' }}
+              // Sleep-zoom is muiswerk; op touch moet slepen de pagina scrollen.
+              style={coarse ? undefined : { cursor: 'crosshair' }}
               onMouseDown={(s) => {
+                if (coarse) return
                 const i = Number(s?.activeLabel)
                 if (!Number.isNaN(i)) {
                   setDragStart(i)

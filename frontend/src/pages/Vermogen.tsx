@@ -405,7 +405,7 @@ function AccountEvolution({ status }: { status: AccountStatus }) {
           ))}
         </div>
       </div>
-      <div className="mt-4 h-64">
+      <div className="mt-4 h-64 max-md:h-56">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={data} barCategoryGap="22%">
             <CartesianGrid vertical={false} stroke="#e1e0d9" />
