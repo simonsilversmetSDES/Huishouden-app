@@ -7,6 +7,7 @@ import Meter, { spendingTone, type MeterTone } from '../components/Meter'
 import PeriodPicker, { currentPeriod, type Period } from '../components/PeriodPicker'
 import TrackedVsBudget from '../components/TrackedVsBudget'
 import { formatCents, formatCentsPlain, formatMonthYear } from '../lib/format'
+import { useIsMobile } from '../lib/useMediaQuery'
 import { useAppState } from '../state/AppState'
 
 const pctFmt = new Intl.NumberFormat('nl-BE', { maximumFractionDigits: 1 })
@@ -229,38 +230,111 @@ function TypeTile({
 const SECTION_ORDER: CategoryType[] = ['Inkomen', 'Uitgaven', 'Sparen']
 
 function CategoryTable({ categories }: { categories: CategoryStatus[] }) {
+  const isMobile = useIsMobile()
   const visible = categories.filter((c) => c.budget_cents !== 0 || c.actual_cents !== 0)
   const hidden = categories.length - visible.length
 
   return (
     <section className="overflow-x-auto rounded-2xl border border-edge bg-surface">
-      <table className="w-full min-w-[640px] text-sm">
-        <thead>
-          <tr className="border-b border-line text-xs text-ink-3">
-            <th className="px-5 py-3 text-left font-medium">Budget vs. werkelijk</th>
-            <th className="px-3 py-3 text-right font-medium">Werkelijk</th>
-            <th className="px-3 py-3 text-right font-medium">Budget</th>
-            <th className="px-3 py-3 text-right font-medium">%</th>
-            <th className="px-3 py-3 text-right font-medium">Resterend</th>
-            <th className="px-5 py-3 text-right font-medium">Boven budget</th>
-          </tr>
-        </thead>
-        <tbody className="tabular-nums">
+      {isMobile ? (
+        <div className="px-4 pb-3">
           {SECTION_ORDER.map((type) => {
             const rows = visible.filter((c) => c.type === type)
             if (rows.length === 0) return null
-            return (
-              <SectionRows key={type} type={type} rows={rows} />
-            )
+            return <SectionCards key={type} type={type} rows={rows} />
           })}
-        </tbody>
-      </table>
+        </div>
+      ) : (
+        <table className="w-full min-w-[640px] text-sm">
+          <thead>
+            <tr className="border-b border-line text-xs text-ink-3">
+              <th className="px-5 py-3 text-left font-medium">Budget vs. werkelijk</th>
+              <th className="px-3 py-3 text-right font-medium">Werkelijk</th>
+              <th className="px-3 py-3 text-right font-medium">Budget</th>
+              <th className="px-3 py-3 text-right font-medium">%</th>
+              <th className="px-3 py-3 text-right font-medium">Resterend</th>
+              <th className="px-5 py-3 text-right font-medium">Boven budget</th>
+            </tr>
+          </thead>
+          <tbody className="tabular-nums">
+            {SECTION_ORDER.map((type) => {
+              const rows = visible.filter((c) => c.type === type)
+              if (rows.length === 0) return null
+              return (
+                <SectionRows key={type} type={type} rows={rows} />
+              )
+            })}
+          </tbody>
+        </table>
+      )}
       {hidden > 0 && (
         <p className="border-t border-line px-5 py-3 text-xs text-ink-3">
           {hidden} categorieën zonder budget of activiteit verborgen
         </p>
       )}
     </section>
+  )
+}
+
+// Mobiele weergave van het jaaroverzicht: gestapelde rij per categorie met de
+// Meter-balk eronder; de secundaire kolommen worden één subregel.
+function SectionCards({ type, rows }: { type: CategoryType; rows: CategoryStatus[] }) {
+  const sum = (f: (r: CategoryStatus) => number) => rows.reduce((acc, r) => acc + f(r), 0)
+  const totalActual = sum((r) => r.actual_cents)
+  const totalBudget = sum((r) => r.budget_cents)
+  return (
+    <div>
+      <p className="pb-1 pt-4 text-xs font-medium uppercase tracking-wide text-ink-3">{type}</p>
+      <ul className="divide-y divide-line">
+        {rows.map((row) => (
+          <CategoryCard key={row.category_id} row={row} />
+        ))}
+      </ul>
+      <p className="flex items-baseline justify-between border-t border-line py-2 text-xs">
+        <span className="text-ink-3">Totaal {type.toLowerCase()}</span>
+        <span className="tabular-nums">
+          <span className="font-medium">{formatCentsPlain(totalActual)}</span>
+          <span className="text-ink-3">
+            {' '}van {formatCentsPlain(totalBudget)} · {pctText(totalActual, totalBudget)}
+          </span>
+        </span>
+      </p>
+    </div>
+  )
+}
+
+function CategoryCard({ row }: { row: CategoryStatus }) {
+  const isSpending = row.type === 'Uitgaven'
+  const tone: MeterTone = isSpending
+    ? spendingTone(row.actual_cents, row.budget_cents)
+    : row.type === 'Inkomen'
+      ? 'income'
+      : 'saving'
+  const pct = row.budget_cents > 0 ? Math.round((row.actual_cents / row.budget_cents) * 100) : null
+  const remaining = Math.max(row.budget_cents - row.actual_cents, 0)
+  const excess = Math.max(row.actual_cents - row.budget_cents, 0)
+  return (
+    <li className="py-2">
+      <div className="flex items-baseline justify-between gap-3 text-sm">
+        <span className="min-w-0 truncate">{row.name}</span>
+        <span className="shrink-0 font-medium tabular-nums">
+          {formatCentsPlain(row.actual_cents)}
+        </span>
+      </div>
+      <p className="mt-0.5 text-xs tabular-nums text-ink-3">
+        {row.budget_cents !== 0 ? `van ${formatCentsPlain(row.budget_cents)}` : 'geen budget'}
+        {pct !== null && ` · ${pct} %`}
+        {row.budget_cents > 0 && remaining > 0 && ` · nog ${formatCentsPlain(remaining)}`}
+        {excess > 0 && (
+          <span className={isSpending ? 'text-crit' : 'text-good'}>
+            {' '}· {formatCentsPlain(excess)} {isSpending ? 'boven budget' : 'boven doel'}
+          </span>
+        )}
+      </p>
+      <div className="mt-1.5">
+        <Meter value={row.actual_cents} max={row.budget_cents} tone={tone} />
+      </div>
+    </li>
   )
 }
 
