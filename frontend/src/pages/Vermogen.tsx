@@ -26,6 +26,7 @@ import type {
 import DonutCard from '../components/DonutCard'
 import { ASSET_CLASS_COLORS, ASSET_CLASS_LABEL, seriesColor } from '../lib/chartColors'
 import { formatCents, formatCentsPlain, MAAND_KORT, parseEuroToCents } from '../lib/format'
+import { useIsMobile } from '../lib/useMediaQuery'
 import { useAppState } from '../state/AppState'
 
 const ASSET_CLASSES: AssetClass[] = [
@@ -944,7 +945,64 @@ function NetWorthEvolution({
 }
 
 function StatusTable({ status }: { status: AccountStatus }) {
+  const isMobile = useIsMobile()
   const rows = useMemo(() => [...status.rows].reverse(), [status.rows]) // recentste eerst
+
+  if (isMobile) {
+    // Mobiele weergave: kaartje per maand met totaal + verandering; de
+    // rekeningkolommen zitten in een inklapbare sublijst.
+    return (
+      <div className="rounded-2xl border border-edge bg-surface">
+        <ul className="divide-y divide-line">
+          {rows.map((row) => {
+            const byAccount = new Map(row.balances.map((b) => [b.account_id, b.balance_cents]))
+            return (
+              <li key={row.snapshot_date}>
+                <details className="group px-4 py-2.5">
+                  <summary className="flex cursor-pointer list-none items-baseline justify-between gap-3 [&::-webkit-details-marker]:hidden">
+                    <span className="text-sm capitalize">{monthLabel(row.snapshot_date)}</span>
+                    <span className="text-right">
+                      <span className="block text-sm font-medium tabular-nums">
+                        {formatCentsPlain(row.total_cents)}
+                      </span>
+                      {row.change_cents !== null && (
+                        <span
+                          className={`block text-xs tabular-nums ${
+                            row.change_cents < 0 ? 'text-crit' : 'text-good'
+                          }`}
+                        >
+                          {row.change_cents > 0 ? '+' : ''}
+                          {formatCentsPlain(row.change_cents)}
+                          {row.change_pct !== null &&
+                            ` (${row.change_pct > 0 ? '+' : ''}${pctFmt.format(row.change_pct)} %)`}
+                        </span>
+                      )}
+                    </span>
+                  </summary>
+                  <ul className="mt-2 space-y-1 border-t border-line pt-2">
+                    {status.accounts.map((account) => (
+                      <li
+                        key={account.id}
+                        className="flex items-baseline justify-between gap-3 text-xs"
+                      >
+                        <span className="min-w-0 truncate text-ink-3">{account.name}</span>
+                        <span className="shrink-0 tabular-nums text-ink-2">
+                          {byAccount.has(account.id)
+                            ? formatCentsPlain(byAccount.get(account.id) as number)
+                            : '–'}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              </li>
+            )
+          })}
+        </ul>
+      </div>
+    )
+  }
+
   return (
     <div className="overflow-x-auto rounded-2xl border border-edge bg-surface">
       <table className="w-full min-w-[640px] text-sm">
