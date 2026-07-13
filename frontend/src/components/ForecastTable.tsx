@@ -9,6 +9,7 @@ import type {
 } from '../api/types'
 import { ASSET_CLASS_LABEL } from '../lib/chartColors'
 import { formatCentsWhole, formatMonthYear, MAAND_KORT } from '../lib/format'
+import { useCoarsePointer } from '../lib/useMediaQuery'
 import { NoteMarker, useCellNotes } from './cellNotes'
 
 /** Vermogensforecast ("Status balans" uit de Excel): balans per activaklasse,
@@ -30,6 +31,7 @@ export default function ForecastTable({
   const [editText, setEditText] = useState('')
   const [saveError, setSaveError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const coarse = useCoarsePointer() // touch: geen vulgreepje (sleep = scrollen)
 
   const load = useCallback(() => {
     if (contextId === null) return
@@ -440,7 +442,7 @@ export default function ForecastTable({
                           ? ''
                           : formatCentsWhole(cell.value_cents)}
                       {notes.hasNote(key) && <NoteMarker />}
-                      {isSelected && cell.kind !== 'werkelijk' && !busy && (
+                      {isSelected && !coarse && cell.kind !== 'werkelijk' && !busy && (
                         <span
                           onMouseDown={onFillHandleMouseDown}
                           title="Doortrekken: sleep om deze formule als override te kopiëren"

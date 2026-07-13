@@ -18,6 +18,7 @@ import type {
 import ForecastTable from '../components/ForecastTable'
 import { NoteMarker, useCellNotes, type CellNotes } from '../components/cellNotes'
 import { formatCentsWhole, MAAND_KORT, parseEuroToCents } from '../lib/format'
+import { useCoarsePointer } from '../lib/useMediaQuery'
 import { useAppState } from '../state/AppState'
 
 export default function Budget() {
@@ -222,6 +223,7 @@ function MatrixTable({
     return { orderedCats, rowIndexByCat, centsByKey, notesByKey }
   }, [matrix])
 
+  const coarse = useCoarsePointer() // touch: geen vulgreepje (sleep = scrollen)
   const [selected, setSelected] = useState<Set<string>>(() => new Set())
   const [editing, setEditing] = useState<{ categoryId: number; month: number } | null>(null)
   const [editText, setEditText] = useState('')
@@ -573,6 +575,7 @@ function MatrixTable({
     isFillPreview: (cid, m) => fillPreview?.has(cellKey(cid, m)) ?? false,
     // Het vulgreepje zit op de cel rechtsonder van een rechthoekige selectie.
     hasFillHandle: (cid, m) =>
+      !coarse &&
       selRect !== null &&
       !busy &&
       orderedCats[selRect.r2] === cid &&
@@ -762,6 +765,7 @@ function Cell({
       <td className="p-0">
         <input
           autoFocus
+          inputMode="decimal"
           value={ctrl.editText}
           disabled={ctrl.busy}
           onChange={(e) => ctrl.onEditChange(e.target.value)}
