@@ -31,7 +31,7 @@ export default function FinanceLayout() {
   const showContextSwitcher = !HIDE_CONTEXT_SWITCHER.some((p) => location.pathname.startsWith(p))
 
   return (
-    <div className="min-h-screen bg-page pb-20 text-ink">
+    <div className="min-h-screen bg-page pb-[calc(5rem+env(safe-area-inset-bottom))] text-ink">
       <header className="sticky top-0 z-20 border-b border-edge bg-page/90 backdrop-blur">
         <div className="mx-auto flex h-14 max-w-5xl items-center gap-2 px-4">
           <Link
@@ -42,12 +42,12 @@ export default function FinanceLayout() {
             <IconGrid className="size-5" />
           </Link>
           {showContextSwitcher && (
-            <nav className="flex items-center gap-1 overflow-x-auto">
+            <nav className="scrollbar-none flex items-center gap-1 overflow-x-auto overscroll-x-contain">
               {contexts.map((c) => (
                 <button
                   key={c.id}
                   onClick={() => setContextId(c.id)}
-                  className={`whitespace-nowrap rounded-full px-3 py-1 text-sm transition-colors ${
+                  className={`whitespace-nowrap rounded-full px-3 py-1 text-sm transition-colors pointer-coarse:py-1.5 ${
                     c.id === contextId
                       ? 'bg-ink text-white'
                       : 'text-ink-3 hover:bg-surface hover:text-ink-2'
@@ -72,7 +72,7 @@ export default function FinanceLayout() {
         <Outlet />
       </main>
 
-      <nav className="fixed inset-x-0 bottom-0 z-20 border-t border-edge bg-page/95 backdrop-blur">
+      <nav className="fixed inset-x-0 bottom-0 z-20 border-t border-edge bg-page/95 pb-[env(safe-area-inset-bottom)] backdrop-blur">
         <div className="mx-auto flex max-w-5xl items-stretch justify-around px-2">
           {NAV.map((item) => {
             const Icon = item.icon

@@ -7,7 +7,7 @@ const SUBNAV = [
 ]
 
 const linkClass = ({ isActive }: { isActive: boolean }) =>
-  `rounded-lg px-3 py-1.5 text-sm transition-colors ${
+  `rounded-lg px-3 py-1.5 text-sm transition-colors pointer-coarse:py-2 ${
     isActive ? 'bg-surface text-ink shadow-sm' : 'text-ink-3 hover:text-ink-2'
   }`
 
