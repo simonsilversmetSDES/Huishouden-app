@@ -793,6 +793,7 @@ function Cell({
       }}
       onMouseLeave={() => ctrl.notes.onHoverEnd(key)}
       onContextMenu={(e) => ctrl.notes.onContextMenu(key, e)}
+      {...ctrl.notes.longPress(key)}
       className={`no-callout relative cursor-cell px-2 py-1 text-right transition-colors max-md:px-1.5 ${
         selected
           ? 'bg-accent/15 ring-1 ring-inset ring-accent'

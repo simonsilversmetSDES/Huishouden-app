@@ -413,6 +413,7 @@ export default function ForecastTable({
                       key={i}
                       onClick={() => select(row.asset_class, i + 1)}
                       onContextMenu={(e) => notes.onContextMenu(key, e)}
+                      {...notes.longPress(key)}
                       onMouseEnter={(e) => {
                         onCellFillHover(row, i + 1)
                         notes.onHoverStart(key, e)

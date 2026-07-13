@@ -1,10 +1,13 @@
 // Excel-achtige celnotities, gedeeld door de budget- en forecast-tabellen:
 // rechtsklikmenu (toevoegen/bewerken/verwijderen), geel notitie-kadertje en
-// hover-tooltip. De overlays gaan via een portal naar <body>, omdat een
-// CSS-transform op een tabelcontainer position:fixed anders verschuift.
+// hover-tooltip. Op touch opent lang indrukken hetzelfde menu (rechtsklik en
+// hover bestaan daar niet). De overlays gaan via een portal naar <body>, omdat
+// een CSS-transform op een tabelcontainer position:fixed anders verschuift.
 
 import { useEffect, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
+import { useLongPress, type LongPressHandlers } from '../lib/useLongPress'
+import { useIsMobile } from '../lib/useMediaQuery'
 
 interface CellNotesOptions {
   /** Huidige notitie voor een celsleutel, of null. */
@@ -18,19 +21,23 @@ interface CellNotesOptions {
 export interface CellNotes {
   hasNote: (key: string) => boolean
   onContextMenu: (key: string, e: React.MouseEvent) => void
+  /** Touch-handlers per cel: lang indrukken opent het notitiemenu. */
+  longPress: (key: string) => LongPressHandlers
   onHoverStart: (key: string, e: React.MouseEvent) => void
   onHoverEnd: (key: string) => void
   overlays: ReactNode
 }
 
 export function useCellNotes({ noteFor, onSave, onMenuOpen }: CellNotesOptions): CellNotes {
+  const isMobile = useIsMobile()
+  const { bind: bindLongPress } = useLongPress()
   const [menu, setMenu] = useState<{ x: number; y: number; key: string } | null>(null)
   const [edit, setEdit] = useState<{ key: string; x: number; y: number } | null>(null)
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
   const [hover, setHover] = useState<{ text: string; x: number; y: number } | null>(null)
 
-  // Menu sluit bij klik elders of Escape (mousedown op het menu zelf stopt de bubble).
+  // Menu sluit bij klik/tik elders of Escape (mousedown op het menu zelf stopt de bubble).
   useEffect(() => {
     if (!menu) return
     const close = () => setMenu(null)
@@ -38,18 +45,34 @@ export function useCellNotes({ noteFor, onSave, onMenuOpen }: CellNotesOptions):
       if (e.key === 'Escape') setMenu(null)
     }
     window.addEventListener('mousedown', close)
+    window.addEventListener('touchstart', close)
     window.addEventListener('keydown', onKey)
     return () => {
       window.removeEventListener('mousedown', close)
+      window.removeEventListener('touchstart', close)
       window.removeEventListener('keydown', onKey)
     }
   }, [menu])
 
-  function onContextMenu(key: string, e: React.MouseEvent) {
-    e.preventDefault()
+  // Gedeeld door rechtsklik en long-press; clampt op beide assen zodat het
+  // menu onderaan/rechts niet buiten het scherm valt.
+  function openMenuAt(key: string, x: number, y: number) {
     onMenuOpen?.(key)
     setHover(null)
-    setMenu({ x: Math.min(e.clientX, window.innerWidth - 200), y: e.clientY, key })
+    setMenu({
+      x: Math.min(x, window.innerWidth - 200),
+      y: Math.min(y, window.innerHeight - 110),
+      key,
+    })
+  }
+
+  function onContextMenu(key: string, e: React.MouseEvent) {
+    e.preventDefault()
+    openMenuAt(key, e.clientX, e.clientY)
+  }
+
+  function longPress(key: string): LongPressHandlers {
+    return bindLongPress((x, y) => openMenuAt(key, x, y))
   }
 
   function onHoverStart(key: string, e: React.MouseEvent) {
@@ -96,19 +119,20 @@ export function useCellNotes({ noteFor, onSave, onMenuOpen }: CellNotesOptions):
         createPortal(
           <div
             onMouseDown={(e) => e.stopPropagation()}
+            onTouchStart={(e) => e.stopPropagation()}
             className="fixed z-50 min-w-44 rounded-lg border border-edge bg-surface py-1 text-sm shadow-lg"
             style={{ left: menu.x, top: menu.y }}
           >
             <button
               onClick={openEditor}
-              className="block w-full px-3 py-1.5 text-left hover:bg-raised"
+              className="block w-full px-3 py-1.5 text-left hover:bg-raised pointer-coarse:py-2.5"
             >
               {menuHasNote ? 'Notitie bewerken' : 'Notitie toevoegen'}
             </button>
             {menuHasNote && (
               <button
                 onClick={removeFromMenu}
-                className="block w-full px-3 py-1.5 text-left text-crit hover:bg-raised"
+                className="block w-full px-3 py-1.5 text-left text-crit hover:bg-raised pointer-coarse:py-2.5"
               >
                 Notitie verwijderen
               </button>
@@ -120,8 +144,12 @@ export function useCellNotes({ noteFor, onSave, onMenuOpen }: CellNotesOptions):
       {edit &&
         createPortal(
           <div
-            className="fixed z-50 w-72 rounded-lg border border-warn/50 bg-[#fdf6d8] p-2 shadow-lg"
-            style={{ left: edit.x, top: edit.y }}
+            // Mobiel: vaste strook boven de tabbar i.p.v. op cursorpositie,
+            // anders verdwijnt de editor achter het toetsenbord.
+            className={`fixed z-50 rounded-lg border border-warn/50 bg-[#fdf6d8] p-2 shadow-lg ${
+              isMobile ? 'inset-x-2 bottom-[calc(4rem+env(safe-area-inset-bottom))]' : 'w-72'
+            }`}
+            style={isMobile ? undefined : { left: edit.x, top: edit.y }}
           >
             <textarea
               autoFocus
@@ -180,6 +208,7 @@ export function useCellNotes({ noteFor, onSave, onMenuOpen }: CellNotesOptions):
   return {
     hasNote: (key) => noteFor(key) !== null,
     onContextMenu,
+    longPress,
     onHoverStart,
     onHoverEnd,
     overlays,
