@@ -420,11 +420,12 @@ function ScheduleTable({ rows }: { rows: LoanScheduleRow[] }) {
         </span>
       </button>
       {open && (
-        <div className="max-h-[28rem] overflow-auto border-t border-line">
-          <table className="w-full min-w-[560px] text-sm tabular-nums">
-            <thead className="sticky top-0 bg-surface">
+        <div className="max-h-[28rem] overflow-auto overscroll-x-contain border-t border-line max-md:max-h-[60dvh]">
+          <table className="w-full min-w-[560px] text-sm tabular-nums max-md:text-xs">
+            {/* z-20: de kopregel moet ook over de vastgepinde datumkolom (z-10) schuiven. */}
+            <thead className="sticky top-0 z-20 bg-surface">
               <tr className="border-b border-line text-xs text-ink-3">
-                <th className="px-3 py-2 text-left font-medium">Datum</th>
+                <th className="sticky-col px-3 py-2 text-left font-medium">Datum</th>
                 <th className="px-3 py-2 text-right font-medium">Maandlast</th>
                 <th className="px-3 py-2 text-right font-medium">Interest</th>
                 <th className="px-3 py-2 text-right font-medium">Kapitaal</th>
@@ -437,7 +438,7 @@ function ScheduleTable({ rows }: { rows: LoanScheduleRow[] }) {
                   key={r.n}
                   className={`border-b border-line last:border-b-0 ${r.paid ? '' : 'text-ink-3'}`}
                 >
-                  <td className="whitespace-nowrap px-3 py-1.5">{formatDate(r.date)}</td>
+                  <td className="sticky-col whitespace-nowrap px-3 py-1.5">{formatDate(r.date)}</td>
                   <td className="px-3 py-1.5 text-right">{formatCentsPlain(r.payment_cents)}</td>
                   <td className="px-3 py-1.5 text-right">{formatCentsPlain(r.interest_cents)}</td>
                   <td className="px-3 py-1.5 text-right">{formatCentsPlain(r.principal_cents)}</td>
