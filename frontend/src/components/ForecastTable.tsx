@@ -360,11 +360,11 @@ export default function ForecastTable({
         )}
       </div>
 
-      <div className="overflow-x-auto rounded-2xl border border-edge bg-surface">
-        <table className="w-full min-w-[760px] select-none border-collapse text-sm">
+      <div className="overflow-x-auto overscroll-x-contain rounded-2xl border border-edge bg-surface">
+        <table className="w-full min-w-[760px] select-none border-collapse text-sm max-md:text-xs">
           <thead>
             <tr className="text-xs text-ink-3">
-              <th className="sticky left-0 z-10 bg-surface px-4 py-3 text-left font-medium">
+              <th className="sticky-col px-4 py-3 text-left font-medium max-md:px-3">
                 Balans
               </th>
               {MAAND_KORT.map((m, i) => {
@@ -386,7 +386,7 @@ export default function ForecastTable({
               <tr key={row.asset_class} className="border-t border-line">
                 <td
                   onClick={() => select(row.asset_class, null)}
-                  className={`sticky left-0 z-10 cursor-pointer bg-surface px-4 py-2.5 hover:text-accent ${
+                  className={`sticky-col cursor-pointer px-4 py-2.5 hover:text-accent max-md:px-3 ${
                     selection?.assetClass === row.asset_class && selection.month === null
                       ? 'text-accent'
                       : ''
@@ -419,7 +419,7 @@ export default function ForecastTable({
                       }}
                       onMouseLeave={() => notes.onHoverEnd(key)}
                       title={cell.error ?? undefined}
-                      className={`relative cursor-pointer px-2 py-2.5 text-right ${
+                      className={`no-callout relative cursor-pointer px-2 py-2.5 text-right max-md:px-1.5 ${
                         isSelected
                           ? 'ring-1 ring-inset ring-accent'
                           : inFillPreview
@@ -452,7 +452,7 @@ export default function ForecastTable({
               </tr>
             ))}
             <tr className="border-t border-line font-medium">
-              <td className="sticky left-0 z-10 bg-surface px-4 py-2.5">Totaal</td>
+              <td className="sticky-col px-4 py-2.5 max-md:px-3">Totaal</td>
               {matrix.totals.map((cell, i) => (
                 <td
                   key={i}

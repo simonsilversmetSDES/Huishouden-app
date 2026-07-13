@@ -595,11 +595,11 @@ function MatrixTable({
 
   return (
     <>
-    <div className="overflow-x-auto rounded-2xl border border-edge bg-surface">
-      <table className="w-full min-w-[760px] select-none border-collapse text-sm">
+    <div className="overflow-x-auto overscroll-x-contain rounded-2xl border border-edge bg-surface">
+      <table className="w-full min-w-[760px] select-none border-collapse text-sm max-md:text-xs">
         <thead>
           <tr className="text-xs text-ink-3">
-            <th className="sticky left-0 z-10 bg-surface px-4 py-3 text-left font-medium">
+            <th className="sticky-col px-4 py-3 text-left font-medium max-md:px-3">
               Categorie
             </th>
             {MAAND_KORT.map((m) => (
@@ -612,7 +612,7 @@ function MatrixTable({
         </thead>
         <tbody className="tabular-nums">
           <tr className="border-t border-line">
-            <td className="sticky left-0 z-10 bg-surface px-4 py-2.5 font-medium">
+            <td className="sticky-col px-4 py-2.5 font-medium max-md:px-3">
               Te verdelen
             </td>
             {matrix.to_be_allocated_cents.map((cents, i) => (
@@ -691,16 +691,16 @@ function GroupRows({
       <tr className="border-t border-line">
         <td
           colSpan={14}
-          className="sticky left-0 bg-surface px-4 pb-1 pt-4 text-xs font-medium uppercase tracking-wide text-ink-3"
+          className="sticky-col px-4 pb-1 pt-4 text-xs font-medium uppercase tracking-wide text-ink-3 max-md:px-3"
         >
           {group.type}
         </td>
       </tr>
       {group.categories.map((row) => (
         <tr key={row.category_id} className="group/row">
-          <td className="sticky left-0 z-10 bg-surface px-4 py-1 text-ink-2">
+          <td className="sticky-col px-4 py-1 text-ink-2 max-md:px-3">
             <div className="flex items-center gap-2">
-              <span className="max-w-48 truncate">{row.name}</span>
+              <span className="max-w-48 truncate max-md:max-w-28">{row.name}</span>
               <button
                 onClick={() => onDeleteCategory(row.category_id, row.name)}
                 aria-label={`Categorie ${row.name} verwijderen`}
@@ -727,7 +727,7 @@ function GroupRows({
       ))}
       <AddCategoryRow type={group.type} onAdd={onAddCategory} />
       <tr className="border-t border-line/60">
-        <td className="sticky left-0 z-10 bg-surface px-4 py-2 text-xs text-ink-3">
+        <td className="sticky-col px-4 py-2 text-xs text-ink-3 max-md:px-3">
           Totaal {group.type.toLowerCase()}
         </td>
         {group.monthly_total_cents.map((cents, i) => (
@@ -793,7 +793,7 @@ function Cell({
       }}
       onMouseLeave={() => ctrl.notes.onHoverEnd(key)}
       onContextMenu={(e) => ctrl.notes.onContextMenu(key, e)}
-      className={`relative cursor-cell px-2 py-1 text-right transition-colors ${
+      className={`no-callout relative cursor-cell px-2 py-1 text-right transition-colors max-md:px-1.5 ${
         selected
           ? 'bg-accent/15 ring-1 ring-inset ring-accent'
           : fillPreview
@@ -841,7 +841,7 @@ function AddCategoryRow({
 
   return (
     <tr>
-      <td colSpan={14} className="sticky left-0 bg-surface px-4 py-1.5">
+      <td colSpan={14} className="sticky-col px-4 py-1.5 max-md:px-3">
         {open ? (
           <div className="flex items-center gap-2">
             <input
