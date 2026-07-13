@@ -15,7 +15,8 @@ interface Option {
 }
 
 interface Coords {
-  top: number
+  top?: number
+  bottom?: number // gezet i.p.v. top wanneer de lijst boven het veld opent
   left: number
   width: number
 }
@@ -71,7 +72,15 @@ export default function CategoryPicker({
     const el = wrapRef.current
     if (!el) return
     const r = el.getBoundingClientRect()
-    setCoords({ top: r.bottom + 4, left: r.left, width: r.width })
+    // Mobiel toetsenbord verkleint de visual viewport; bij te weinig ruimte
+    // onder het veld opent de lijst erboven (anders valt hij achter het toetsenbord).
+    const viewportH = window.visualViewport?.height ?? window.innerHeight
+    const spaceBelow = viewportH - r.bottom
+    if (spaceBelow < 200 && r.top > spaceBelow) {
+      setCoords({ bottom: window.innerHeight - r.top + 4, left: r.left, width: r.width })
+    } else {
+      setCoords({ top: r.bottom + 4, left: r.left, width: r.width })
+    }
   }
 
   useLayoutEffect(() => {
@@ -81,6 +90,7 @@ export default function CategoryPicker({
     // capture=true: ook scrollen binnen ancestor-overflow (import-tabel) volgen
     window.addEventListener('scroll', onScrollOrResize, true)
     window.addEventListener('resize', onScrollOrResize)
+    window.visualViewport?.addEventListener('resize', onScrollOrResize)
     function onDown(e: MouseEvent) {
       const t = e.target as Node
       if (wrapRef.current?.contains(t) || listRef.current?.contains(t)) return
@@ -90,6 +100,7 @@ export default function CategoryPicker({
     return () => {
       window.removeEventListener('scroll', onScrollOrResize, true)
       window.removeEventListener('resize', onScrollOrResize)
+      window.visualViewport?.removeEventListener('resize', onScrollOrResize)
       document.removeEventListener('mousedown', onDown)
     }
   }, [open])
@@ -158,11 +169,12 @@ export default function CategoryPicker({
             style={{
               position: 'fixed',
               top: coords.top,
+              bottom: coords.bottom,
               left: coords.left,
               width: coords.width,
               zIndex: 50,
             }}
-            className="max-h-64 overflow-y-auto rounded-lg border border-edge bg-surface py-1 shadow-lg"
+            className="max-h-[40dvh] overflow-y-auto rounded-lg border border-edge bg-surface py-1 shadow-lg"
           >
             {options.length === 0 ? (
               <p className="px-3 py-2 text-sm text-ink-3">Geen categorie gevonden</p>
@@ -181,7 +193,7 @@ export default function CategoryPicker({
                       type="button"
                       onMouseEnter={() => setHighlight(i)}
                       onClick={() => choose(opt)}
-                      className={`block w-full px-3 py-1.5 text-left text-sm ${
+                      className={`block w-full px-3 py-1.5 text-left text-sm pointer-coarse:py-2.5 ${
                         i === highlight ? 'bg-raised text-ink' : 'text-ink-2'
                       } ${opt.id === null ? 'italic text-ink-3' : ''}`}
                     >

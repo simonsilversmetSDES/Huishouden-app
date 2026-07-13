@@ -336,7 +336,7 @@ export default function Import() {
                 onSubmit={saveRule}
               />
 
-              <section className="overflow-x-auto rounded-2xl border border-edge bg-surface">
+              <section className="overflow-x-auto overscroll-x-contain rounded-2xl border border-edge bg-surface">
                 <PreviewTable
                   rows={rows}
                   categories={categories}
@@ -534,7 +534,7 @@ function PreviewTable({
     <table className="w-full min-w-[1000px] text-sm">
       <thead>
         <tr className="border-b border-line text-xs text-ink-3">
-          <th className="px-5 py-3 text-left font-medium">Datum</th>
+          <th className="sticky-col px-5 py-3 text-left font-medium max-md:px-3">Datum</th>
           <th className="px-3 py-3 text-left font-medium">Tegenpartij</th>
           <th className="px-3 py-3 text-left font-medium">Omschrijving</th>
           <th className="px-3 py-3 text-right font-medium">Bedrag</th>
@@ -547,17 +547,21 @@ function PreviewTable({
           return (
             <tr
               key={row.source.import_hash}
+              // Duplicaten gedempt via tekstkleur, niet via opacity op de rij:
+              // opacity zou de vastgepinde datumcel doorschijnend maken.
               className={`border-b border-line last:border-b-0 ${
-                dupe ? 'opacity-45' : 'hover:bg-raised/50'
+                dupe ? 'text-ink-3' : 'hover:bg-raised/50'
               }`}
             >
-              <td className="whitespace-nowrap px-5 py-2">{formatDate(row.source.date)}</td>
+              <td className="sticky-col whitespace-nowrap px-5 py-2 max-md:px-3">
+                {formatDate(row.source.date)}
+              </td>
               <td className="max-w-48 truncate px-3 py-2">
                 {row.source.counterparty_name ?? (
                   <span className="text-ink-3">–</span>
                 )}
               </td>
-              <td className="px-3 py-2 text-ink-2">
+              <td className={`px-3 py-2 ${dupe ? '' : 'text-ink-2'}`}>
                 {dupe ? (
                   <span className="block max-w-64 truncate">{row.source.description ?? ''}</span>
                 ) : (
