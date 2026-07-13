@@ -31,7 +31,7 @@ export default function FinanceLayout() {
   const showContextSwitcher = !HIDE_CONTEXT_SWITCHER.some((p) => location.pathname.startsWith(p))
 
   return (
-    <div className="min-h-screen bg-page pb-[calc(5rem+env(safe-area-inset-bottom))] text-ink">
+    <div className="min-h-dvh bg-page pb-[calc(5rem+env(safe-area-inset-bottom))] text-ink">
       <header className="sticky top-0 z-20 border-b border-edge bg-page/90 backdrop-blur">
         <div className="mx-auto flex h-14 max-w-5xl items-center gap-2 px-4">
           <Link

@@ -38,7 +38,7 @@ export default function AppLauncher() {
   const { user, logout } = useAuth()
 
   return (
-    <div className="min-h-screen bg-page text-ink">
+    <div className="min-h-dvh bg-page text-ink">
       <header className="sticky top-0 z-20 border-b border-edge bg-page/90 backdrop-blur">
         <div className="mx-auto flex h-14 max-w-4xl items-center px-4">
           <span className="text-[15px] font-semibold tracking-tight">Huishouden</span>
