@@ -494,11 +494,23 @@ function NetWorthSection({ contextId }: { contextId: number }) {
   const breakdown = (data?.latest_breakdown ?? []).filter(
     (a) => !excludeWoning || a.asset_class !== 'woning',
   )
-  const donutRows = breakdown.map((a) => ({
-    name: ASSET_CLASS_LABEL[a.asset_class],
-    cents: a.value_cents,
-    color: ASSET_CLASS_COLORS[a.asset_class],
-  }))
+  // "Balansoverzicht" toont de drie beleggingsklassen (ETF's/fondsen, aandelen,
+  // bitcoin) samen als één post "Beleggingen"; de split staat in "Balans beleggingen".
+  const investTotalCents = breakdown
+    .filter((a) => INVESTMENT_CLASSES.includes(a.asset_class))
+    .reduce((sum, a) => sum + a.value_cents, 0)
+  const activaRows = [
+    ...breakdown
+      .filter((a) => !INVESTMENT_CLASSES.includes(a.asset_class))
+      .map((a) => ({
+        name: ASSET_CLASS_LABEL[a.asset_class],
+        cents: a.value_cents,
+        color: ASSET_CLASS_COLORS[a.asset_class],
+      })),
+    ...(investTotalCents > 0
+      ? [{ name: 'Beleggingen', cents: investTotalCents, color: ASSET_CLASS_COLORS.etf_fondsen }]
+      : []),
+  ]
   const investRows = breakdown
     .filter((a) => INVESTMENT_CLASSES.includes(a.asset_class))
     .map((a) => ({
@@ -615,7 +627,7 @@ function NetWorthSection({ contextId }: { contextId: number }) {
 
           {rows.length > 0 && (
             <>
-              <VermogenDonuts selectedIds={selectedIds} activaRows={donutRows} investRows={investRows} />
+              <VermogenDonuts selectedIds={selectedIds} activaRows={activaRows} investRows={investRows} />
               <NetWorthEvolution
                 data={data}
                 excludeWoning={excludeWoning}

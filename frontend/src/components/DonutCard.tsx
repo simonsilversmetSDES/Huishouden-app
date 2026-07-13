@@ -8,6 +8,7 @@ import { OTHER_HEX, RAMPS } from '../lib/chartColors'
 import { formatCents } from '../lib/format'
 
 const TOP_N = 5
+const pctFmt = new Intl.NumberFormat('nl-BE', { maximumFractionDigits: 1 })
 
 export interface DonutRow {
   name: string
@@ -25,6 +26,8 @@ interface DonutCardProps {
   maxSegments?: number
   /** Optionele bijschrift onder de titel. */
   subtitle?: string
+  /** Tailwind-maat van de ring (default h-36 w-36). */
+  ringClass?: string
 }
 
 export default function DonutCard({
@@ -33,6 +36,7 @@ export default function DonutCard({
   rows,
   maxSegments = TOP_N,
   subtitle,
+  ringClass = 'h-36 w-36',
 }: DonutCardProps) {
   const [hidden, setHidden] = useState<Set<string>>(new Set())
   const sorted = rows.filter((r) => r.cents > 0).sort((a, b) => b.cents - a.cents)
@@ -46,6 +50,8 @@ export default function DonutCard({
   // Klikken in de legende verbergt een segment; ring en totaal rekenen op de rest.
   const shown = segments.filter((s) => !hidden.has(s.name))
   const total = shown.reduce((sum, s) => sum + s.cents, 0)
+  // Percentage per rij t.o.v. het volledige totaal (stabiel, telt op tot 100 %).
+  const segTotal = segments.reduce((sum, s) => sum + s.cents, 0)
 
   function toggle(name: string) {
     setHidden((prev) => {
@@ -66,7 +72,7 @@ export default function DonutCard({
         </p>
       ) : (
         <div className="mt-3 flex flex-1 items-center gap-5">
-          <div className="h-36 w-36 shrink-0">
+          <div className={`${ringClass} shrink-0`}>
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
@@ -114,10 +120,17 @@ export default function DonutCard({
                         className="size-2.5 shrink-0 rounded-sm"
                         style={{ backgroundColor: s.color }}
                       />
-                      <span className={`truncate text-ink-2 ${off ? 'line-through' : ''}`}>
+                      <span className={`min-w-0 flex-1 truncate text-ink-2 ${off ? 'line-through' : ''}`}>
                         {s.name}
                       </span>
-                      <span className="ml-auto shrink-0 tabular-nums">{formatCents(s.cents)}</span>
+                      <span className="flex shrink-0 items-baseline gap-1 tabular-nums">
+                        <span>{formatCents(s.cents)}</span>
+                        {segTotal > 0 && (
+                          <span className="w-14 text-right text-xs text-ink-3">
+                            ({pctFmt.format((s.cents / segTotal) * 100)} %)
+                          </span>
+                        )}
+                      </span>
                     </button>
                   </li>
                 )
