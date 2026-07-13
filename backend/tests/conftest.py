@@ -10,6 +10,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.auth.rate_limit import login_limiter
 from app.config import Settings, get_settings
 from app.database import get_db
 from app.main import app
@@ -61,6 +62,7 @@ def client(engine: Engine, seeded_db: Session) -> Generator[TestClient, None, No
 
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_settings] = lambda: settings
+    login_limiter.clear()  # geen doorlopende blokkades tussen tests
     with TestClient(app) as c:
         yield c
     app.dependency_overrides.clear()

@@ -53,6 +53,12 @@ class Settings(BaseSettings):
     session_max_age_days: int = 30
     session_cookie_secure: bool = True
 
+    # Rate limiting op de login: vanaf `max_attempts` mislukte pogingen wordt
+    # het IP/account geblokkeerd met oplopende wachttijd (base × 2^extra, gecapt).
+    login_max_attempts: int = 5
+    login_block_base_seconds: int = 30
+    login_block_max_seconds: int = 900
+
     price_fetch_enabled: bool = True
     price_fetch_hour: int = 18
 
