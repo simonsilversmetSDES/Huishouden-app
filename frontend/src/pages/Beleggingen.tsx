@@ -20,8 +20,9 @@ import type {
 import DonutCard from '../components/DonutCard'
 import PortfolioHistoryChart from '../components/PortfolioHistoryChart'
 import PriceChartModal from '../components/PriceChartModal'
-import { IconPencil, IconReceipt } from '../components/icons'
+import { IconPencil, IconReceipt, IconTrash } from '../components/icons'
 import { formatCents, formatCentsPlain, formatDate } from '../lib/format'
+import { useIsMobile } from '../lib/useMediaQuery'
 import { useAppState } from '../state/AppState'
 
 const inputClass =
@@ -605,7 +606,7 @@ function PositionsTable({
                   onClick={() => onViewTransactions(p.security_id, p.name)}
                   title="Transacties"
                   aria-label={`Transacties van ${p.name}`}
-                  className="rounded-md p-1.5 text-ink-3 transition-colors hover:bg-raised hover:text-ink-2"
+                  className="rounded-md p-1.5 text-ink-3 transition-colors hover:bg-raised hover:text-ink-2 pointer-coarse:p-2.5"
                 >
                   <IconReceipt className="size-4" />
                 </button>
@@ -614,7 +615,7 @@ function PositionsTable({
                     onClick={() => onEdit(byId.get(p.security_id) as Security)}
                     title="Bewerken"
                     aria-label={`${p.name} bewerken`}
-                    className="rounded-md p-1.5 text-ink-3 transition-colors hover:bg-raised hover:text-ink-2"
+                    className="rounded-md p-1.5 text-ink-3 transition-colors hover:bg-raised hover:text-ink-2 pointer-coarse:p-2.5"
                   >
                     <IconPencil className="size-4" />
                   </button>
@@ -983,6 +984,7 @@ function TransactionsModal({
   onClose: () => void
   onChanged: () => void
 }) {
+  const isMobile = useIsMobile()
   const [rows, setRows] = useState<SecurityTransaction[] | null>(null)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [draft, setDraft] = useState<TxDraft | null>(null)
@@ -1077,6 +1079,102 @@ function TransactionsModal({
             <p className="py-8 text-center text-sm text-ink-3">Laden…</p>
           ) : rows.length === 0 ? (
             <p className="py-8 text-center text-sm text-ink-2">Geen transacties.</p>
+          ) : isMobile ? (
+            // Mobiele weergave: kaartje per transactie; bewerken wordt een
+            // gestapeld mini-formulier met dezelfde draft-state als de tabel.
+            <ul className="divide-y divide-line">
+              {rows.map((tx) =>
+                editingId === tx.id && draft ? (
+                  <li key={tx.id} className="space-y-2 py-3">
+                    <div className="grid grid-cols-2 gap-2">
+                      <label className="block text-xs text-ink-3">
+                        Datum
+                        <input
+                          type="date"
+                          className={`${cell} mt-0.5`}
+                          value={draft.date}
+                          onChange={(e) => setDraft({ ...draft, date: e.target.value })}
+                        />
+                      </label>
+                      <label className="block text-xs text-ink-3">
+                        Type
+                        <select
+                          className={`${cell} mt-0.5`}
+                          value={draft.side}
+                          onChange={(e) =>
+                            setDraft({ ...draft, side: e.target.value as SecuritySide })
+                          }
+                        >
+                          <option value="buy">Aankoop</option>
+                          <option value="sell">Verkoop</option>
+                        </select>
+                      </label>
+                      {(
+                        [
+                          ['shares', 'Aantal'],
+                          ['price', 'Prijs'],
+                          ['fee', 'Kost'],
+                          ['tax', 'TOB'],
+                        ] as const
+                      ).map(([field, label]) => (
+                        <label key={field} className="block text-xs text-ink-3">
+                          {label}
+                          <input
+                            inputMode="decimal"
+                            className={`${cell} mt-0.5 text-right`}
+                            value={draft[field]}
+                            onChange={(e) => setDraft({ ...draft, [field]: e.target.value })}
+                          />
+                        </label>
+                      ))}
+                    </div>
+                    <div className="flex gap-4">
+                      <button
+                        onClick={() => void saveEdit(tx.id)}
+                        className="py-1 text-sm text-accent hover:underline"
+                      >
+                        Opslaan
+                      </button>
+                      <button
+                        onClick={() => {
+                          setEditingId(null)
+                          setDraft(null)
+                        }}
+                        className="py-1 text-sm text-ink-3 hover:text-ink-2"
+                      >
+                        Annuleren
+                      </button>
+                    </div>
+                  </li>
+                ) : (
+                  <li key={tx.id} className="flex items-center gap-1 py-1">
+                    <button
+                      onClick={() => startEdit(tx)}
+                      className="min-w-0 flex-1 py-1.5 text-left active:bg-raised/50"
+                    >
+                      <span className="flex items-baseline justify-between gap-3 text-sm">
+                        <span>
+                          {tx.side === 'buy' ? 'Aankoop' : 'Verkoop'}{' '}
+                          <span className="text-xs text-ink-3">{formatDate(tx.date)}</span>
+                        </span>
+                        <span className="shrink-0 font-medium tabular-nums">{dec(tx.total)}</span>
+                      </span>
+                      <span className="mt-0.5 block text-xs tabular-nums text-ink-3">
+                        {dec(tx.shares)} × {dec(tx.price_per_share)} · kost {dec(tx.fee)} · TOB{' '}
+                        {dec(tx.tax)}
+                      </span>
+                    </button>
+                    <button
+                      onClick={() => void remove(tx)}
+                      aria-label="Verwijderen"
+                      className="shrink-0 rounded-lg p-2.5 text-ink-3 transition-colors hover:text-crit active:bg-raised"
+                    >
+                      <IconTrash className="size-4" />
+                    </button>
+                  </li>
+                ),
+              )}
+            </ul>
           ) : (
             <table className="w-full min-w-[640px] text-sm tabular-nums">
               <thead>
@@ -1179,6 +1277,7 @@ function TransactionsModal({
 }
 
 function RealizedGains({ portfolio }: { portfolio: Portfolio }) {
+  const isMobile = useIsMobile()
   if (portfolio.realized_gains.length === 0) return null
   return (
     <section className="space-y-3">
@@ -1202,42 +1301,67 @@ function RealizedGains({ portfolio }: { portfolio: Portfolio }) {
       </div>
 
       <div className="overflow-x-auto rounded-2xl border border-edge bg-surface">
-        <table className="w-full min-w-[720px] text-sm">
-          <thead>
-            <tr className="border-b border-line text-xs text-ink-3">
-              <th className="px-5 py-3 text-left font-medium">Datum</th>
-              <th className="px-3 py-3 text-left font-medium">Effect</th>
-              <th className="px-3 py-3 text-right font-medium">Aantal</th>
-              <th className="px-3 py-3 text-right font-medium">Opbrengst</th>
-              <th className="px-3 py-3 text-right font-medium">Kostbasis</th>
-              <th className="px-5 py-3 text-right font-medium">Meerwaarde</th>
-            </tr>
-          </thead>
-          <tbody className="tabular-nums">
+        {isMobile ? (
+          <ul className="divide-y divide-line">
             {portfolio.realized_gains.map((g, i) => (
-              <tr
-                key={`${g.security_id}-${g.date}-${i}`}
-                className="border-b border-line last:border-b-0"
-              >
-                <td className="whitespace-nowrap px-5 py-2">{formatDate(g.date)}</td>
-                <td className="px-3 py-2">{g.name}</td>
-                <td className="px-3 py-2 text-right text-ink-2">{dec(g.shares)}</td>
-                <td className="px-3 py-2 text-right text-ink-2">
-                  {formatCentsPlain(g.proceeds_cents)}
-                </td>
-                <td className="px-3 py-2 text-right text-ink-2">
-                  {formatCentsPlain(g.cost_basis_cents)}
-                </td>
-                <td className="px-5 py-2 text-right">
-                  <span className={g.gain_cents < 0 ? 'text-crit' : 'text-good'}>
+              <li key={`${g.security_id}-${g.date}-${i}`} className="px-4 py-2">
+                <div className="flex items-baseline justify-between gap-3 text-sm">
+                  <span className="min-w-0 truncate font-medium">{g.name}</span>
+                  <span
+                    className={`shrink-0 tabular-nums ${
+                      g.gain_cents < 0 ? 'text-crit' : 'text-good'
+                    }`}
+                  >
                     {g.gain_cents > 0 ? '+' : ''}
                     {formatCentsPlain(g.gain_cents)}
                   </span>
-                </td>
-              </tr>
+                </div>
+                <p className="mt-0.5 text-xs tabular-nums text-ink-3">
+                  {formatDate(g.date)} · {dec(g.shares)} st. · opbrengst{' '}
+                  {formatCentsPlain(g.proceeds_cents)} · kostbasis{' '}
+                  {formatCentsPlain(g.cost_basis_cents)}
+                </p>
+              </li>
             ))}
-          </tbody>
-        </table>
+          </ul>
+        ) : (
+          <table className="w-full min-w-[720px] text-sm">
+            <thead>
+              <tr className="border-b border-line text-xs text-ink-3">
+                <th className="px-5 py-3 text-left font-medium">Datum</th>
+                <th className="px-3 py-3 text-left font-medium">Effect</th>
+                <th className="px-3 py-3 text-right font-medium">Aantal</th>
+                <th className="px-3 py-3 text-right font-medium">Opbrengst</th>
+                <th className="px-3 py-3 text-right font-medium">Kostbasis</th>
+                <th className="px-5 py-3 text-right font-medium">Meerwaarde</th>
+              </tr>
+            </thead>
+            <tbody className="tabular-nums">
+              {portfolio.realized_gains.map((g, i) => (
+                <tr
+                  key={`${g.security_id}-${g.date}-${i}`}
+                  className="border-b border-line last:border-b-0"
+                >
+                  <td className="whitespace-nowrap px-5 py-2">{formatDate(g.date)}</td>
+                  <td className="px-3 py-2">{g.name}</td>
+                  <td className="px-3 py-2 text-right text-ink-2">{dec(g.shares)}</td>
+                  <td className="px-3 py-2 text-right text-ink-2">
+                    {formatCentsPlain(g.proceeds_cents)}
+                  </td>
+                  <td className="px-3 py-2 text-right text-ink-2">
+                    {formatCentsPlain(g.cost_basis_cents)}
+                  </td>
+                  <td className="px-5 py-2 text-right">
+                    <span className={g.gain_cents < 0 ? 'text-crit' : 'text-good'}>
+                      {g.gain_cents > 0 ? '+' : ''}
+                      {formatCentsPlain(g.gain_cents)}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
     </section>
   )
