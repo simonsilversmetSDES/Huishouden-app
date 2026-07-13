@@ -708,7 +708,7 @@ function GroupRows({
                 onClick={() => onDeleteCategory(row.category_id, row.name)}
                 aria-label={`Categorie ${row.name} verwijderen`}
                 title="Categorie verwijderen"
-                className="text-ink-3 opacity-0 transition-opacity hover:text-crit group-hover/row:opacity-100"
+                className="px-1 text-ink-3 opacity-0 transition-opacity hover:text-crit group-hover/row:opacity-100 pointer-coarse:opacity-100"
               >
                 ×
               </button>
