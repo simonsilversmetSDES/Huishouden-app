@@ -11,6 +11,7 @@ import type {
 } from '../api/types'
 import CategoryPicker from '../components/CategoryPicker'
 import { FIELD_LABEL, MATCH_FIELDS, MATCH_TYPES, TYPE_LABEL } from '../lib/rules'
+import { useIsMobile } from '../lib/useMediaQuery'
 import { useAppState } from '../state/AppState'
 
 const inputClass =
@@ -18,6 +19,7 @@ const inputClass =
 
 export default function Rules() {
   const { contextId, contexts } = useAppState()
+  const isMobile = useIsMobile()
   const [rules, setRules] = useState<Rule[] | null>(null)
   const [categories, setCategories] = useState<Category[]>([])
   const [editing, setEditing] = useState<Rule | null>(null)
@@ -157,6 +159,15 @@ export default function Rules() {
             <p className="px-5 py-10 text-center text-sm text-ink-2">
               Nog geen regels voor deze context.
             </p>
+          ) : isMobile ? (
+            <RuleCards
+              rules={rules}
+              contexts={contexts}
+              togglingId={togglingId}
+              onToggleContext={(rule, ctxId) => void toggleContext(rule, ctxId)}
+              onEdit={startEdit}
+              onDelete={remove}
+            />
           ) : (
             <RuleTable
               rules={rules}
@@ -378,6 +389,73 @@ function RuleForm({
         Regels worden op prioriteit geëvalueerd (laagste eerst); de eerste match wint.
       </p>
     </section>
+  )
+}
+
+// Mobiele weergave: kaartje per regel met dezelfde acties als de tabel.
+function RuleCards({
+  rules,
+  contexts,
+  togglingId,
+  onToggleContext,
+  onEdit,
+  onDelete,
+}: {
+  rules: Rule[]
+  contexts: Context[]
+  togglingId: number | null
+  onToggleContext: (rule: Rule, ctxId: number) => void
+  onEdit: (rule: Rule) => void
+  onDelete: (rule: Rule) => void
+}) {
+  const showEntities = contexts.length > 1
+  return (
+    <ul className="divide-y divide-line">
+      {rules.map((rule) => (
+        <li key={rule.id} className="space-y-1.5 px-4 py-3">
+          <div className="flex items-baseline gap-2">
+            <span className="min-w-0 flex-1 truncate text-sm font-medium">{rule.match_value}</span>
+            <span className="shrink-0 text-xs tabular-nums text-ink-3">prio {rule.priority}</span>
+          </div>
+          <p className="text-xs text-ink-2">
+            {FIELD_LABEL[rule.match_field]} · {TYPE_LABEL[rule.match_type]} →{' '}
+            {rule.category_name ?? <span className="text-ink-3">–</span>}
+            {rule.created_from_correction && (
+              <span className="ml-2 rounded-md bg-raised px-1.5 py-0.5 text-[11px] text-ink-3">
+                uit correctie
+              </span>
+            )}
+          </p>
+          {showEntities && (
+            <span className="flex flex-wrap gap-1">
+              {contexts.map((c) => (
+                <ContextBadge
+                  key={c.id}
+                  rule={rule}
+                  context={c}
+                  busy={togglingId === rule.id}
+                  onToggle={() => onToggleContext(rule, c.id)}
+                />
+              ))}
+            </span>
+          )}
+          <div className="flex gap-4 pt-0.5">
+            <button
+              onClick={() => onEdit(rule)}
+              className="py-1 text-xs text-ink-3 hover:text-ink-2 hover:underline"
+            >
+              Bewerken
+            </button>
+            <button
+              onClick={() => onDelete(rule)}
+              className="py-1 text-xs text-ink-3 hover:text-crit hover:underline"
+            >
+              Verwijderen
+            </button>
+          </div>
+        </li>
+      ))}
+    </ul>
   )
 }
 
