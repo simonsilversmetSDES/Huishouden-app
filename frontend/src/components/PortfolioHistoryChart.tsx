@@ -1,9 +1,11 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   Area,
+  Brush,
   CartesianGrid,
   ComposedChart,
   Line,
+  ReferenceArea,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -116,6 +118,47 @@ export default function PortfolioHistoryChart({
     return { data, ticks, labels: keys.map((k) => k.label) }
   }, [history, selected])
 
+  // Gekozen tijdsvenster als [start, eind]-index in `data`; null = volledige periode.
+  // Zowel de sleep-selectie op de grafiek als de schuifbalk onderaan sturen dit aan.
+  const [range, setRange] = useState<[number, number] | null>(null)
+  // Sleep-in-uitvoering op het grafiekvlak (in `i`-waarden, dus absolute indexen).
+  const [dragStart, setDragStart] = useState<number | null>(null)
+  const [dragEnd, setDragEnd] = useState<number | null>(null)
+
+  // Verandert de reeks (ander effect aangevinkt) → venster terug naar volledig.
+  useEffect(() => setRange(null), [data.length])
+
+  // Snelkoppelingen: laatste 6 maanden / 1 jaar / 3 jaar t.o.v. het recentste punt.
+  // Enkel tonen wat de reeks effectief inkort (start > 0); "Alles" staat er los bij.
+  const presets = useMemo(() => {
+    if (data.length === 0) return [] as { label: string; start: number }[]
+    const last = new Date(data[data.length - 1].date)
+    const out: { label: string; start: number }[] = []
+    for (const { label, months } of [
+      { label: '6M', months: 6 },
+      { label: '1J', months: 12 },
+      { label: '3J', months: 36 },
+    ]) {
+      const cutoff = new Date(last)
+      cutoff.setMonth(cutoff.getMonth() - months)
+      const start = data.findIndex((r) => new Date(r.date) >= cutoff)
+      if (start > 0) out.push({ label, start })
+    }
+    return out
+  }, [data])
+
+  const maxIdx = Math.max(0, data.length - 1)
+  const startIndex = range ? Math.min(range[0], maxIdx) : 0
+  const endIndex = range ? Math.min(range[1], maxIdx) : maxIdx
+
+  // Compacte datumlabels onder de schuifbalk (bv. "mrt '25").
+  const brushLabel = (i: number) => {
+    const row = data[i]
+    if (!row) return ''
+    const d = new Date(row.date)
+    return `${MAAND_KORT[d.getMonth()]} '${String(d.getFullYear()).slice(2)}`
+  }
+
   // Geen enkele transactie in de hele portefeuille → niets te tonen.
   if (history !== null && history.series.length === 0) return null
 
@@ -129,6 +172,36 @@ export default function PortfolioHistoryChart({
           </span>
         </div>
         <div className="flex items-center gap-4 text-xs text-ink-2">
+          {presets.length > 0 && (
+            <div className="inline-flex rounded-lg border border-edge p-0.5 font-medium">
+              {presets.map((p) => {
+                const on = range !== null && range[0] === p.start && range[1] === maxIdx
+                return (
+                  <button
+                    key={p.label}
+                    type="button"
+                    onClick={() => setRange([p.start, maxIdx])}
+                    aria-pressed={on}
+                    className={`rounded-md px-2 py-0.5 transition-colors ${
+                      on ? 'bg-accent text-white' : 'text-ink-3 hover:text-ink-2'
+                    }`}
+                  >
+                    {p.label}
+                  </button>
+                )
+              })}
+              <button
+                type="button"
+                onClick={() => setRange(null)}
+                aria-pressed={range === null}
+                className={`rounded-md px-2 py-0.5 transition-colors ${
+                  range === null ? 'bg-accent text-white' : 'text-ink-3 hover:text-ink-2'
+                }`}
+              >
+                Alles
+              </button>
+            </div>
+          )}
           <span className="flex items-center gap-1.5">
             <span className="h-0.5 w-4 rounded-full" style={{ backgroundColor: WAARDE }} />
             Waarde
@@ -140,7 +213,7 @@ export default function PortfolioHistoryChart({
         </div>
       </div>
 
-      <div className="mt-4 h-72">
+      <div className="mt-4 h-80">
         {history === null ? (
           <p className="flex h-full items-center justify-center text-sm text-ink-3">Laden…</p>
         ) : data.length === 0 ? (
@@ -149,7 +222,39 @@ export default function PortfolioHistoryChart({
           </p>
         ) : (
           <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={data} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
+            <ComposedChart
+              data={data}
+              margin={{ top: 4, right: 4, bottom: 0, left: 0 }}
+              style={{ cursor: 'crosshair' }}
+              onMouseDown={(s) => {
+                const i = Number(s?.activeLabel)
+                if (!Number.isNaN(i)) {
+                  setDragStart(i)
+                  setDragEnd(i)
+                }
+              }}
+              onMouseMove={(s) => {
+                if (dragStart === null) return
+                const i = Number(s?.activeLabel)
+                if (!Number.isNaN(i)) setDragEnd(i)
+              }}
+              onMouseUp={() => {
+                if (dragStart !== null && dragEnd !== null && dragStart !== dragEnd) {
+                  setRange(dragStart < dragEnd ? [dragStart, dragEnd] : [dragEnd, dragStart])
+                }
+                setDragStart(null)
+                setDragEnd(null)
+              }}
+              onMouseLeave={() => {
+                setDragStart(null)
+                setDragEnd(null)
+              }}
+              onDoubleClick={() => {
+                setRange(null)
+                setDragStart(null)
+                setDragEnd(null)
+              }}
+            >
               <defs>
                 <linearGradient id="portfolioValueFill" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor={WAARDE} stopOpacity={0.14} />
@@ -196,6 +301,40 @@ export default function PortfolioHistoryChart({
                 strokeWidth={2}
                 dot={false}
                 isAnimationActive={false}
+              />
+              {/* Blauwe zone tijdens het slepen om een periode te selecteren. */}
+              {dragStart !== null && dragEnd !== null && dragStart !== dragEnd && (
+                <ReferenceArea
+                  x1={Math.min(dragStart, dragEnd)}
+                  x2={Math.max(dragStart, dragEnd)}
+                  fill={WAARDE}
+                  fillOpacity={0.08}
+                  stroke={WAARDE}
+                  strokeOpacity={0.3}
+                />
+              )}
+              {/* Schuifbalk onderaan: sleep de handvatten of de balk om de periode aan te passen. */}
+              <Brush
+                dataKey="i"
+                height={26}
+                travellerWidth={8}
+                gap={1}
+                stroke="#b8b7b0"
+                fill="rgba(11, 11, 11, 0.02)"
+                tickFormatter={(i: number) => brushLabel(i)}
+                startIndex={startIndex}
+                endIndex={endIndex}
+                onChange={(r) => {
+                  if (
+                    typeof r.startIndex === 'number' &&
+                    typeof r.endIndex === 'number' &&
+                    (r.startIndex !== 0 || r.endIndex !== maxIdx)
+                  ) {
+                    setRange([r.startIndex, r.endIndex])
+                  } else {
+                    setRange(null)
+                  }
+                }}
               />
             </ComposedChart>
           </ResponsiveContainer>

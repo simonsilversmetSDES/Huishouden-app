@@ -2,7 +2,9 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   Area,
   AreaChart,
+  Brush,
   CartesianGrid,
+  ReferenceArea,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
@@ -115,6 +117,23 @@ export default function PriceChartModal({
     return { data: rows, ticks: tickIdx }
   }, [history, range])
 
+  // Ingezoomd venster als [start, eind]-index; null = volledige periode. Sleep-
+  // selectie op de grafiek én de schuifbalk onderaan sturen dit aan.
+  const [zoom, setZoom] = useState<[number, number] | null>(null)
+  const [dragStart, setDragStart] = useState<number | null>(null)
+  const [dragEnd, setDragEnd] = useState<number | null>(null)
+
+  // Andere periode gekozen (nieuwe reeks) → zoom terug naar volledig.
+  useEffect(() => {
+    setZoom(null)
+    setDragStart(null)
+    setDragEnd(null)
+  }, [range])
+
+  const maxIdx = Math.max(0, data.length - 1)
+  const startIndex = zoom ? Math.min(zoom[0], maxIdx) : 0
+  const endIndex = zoom ? Math.min(zoom[1], maxIdx) : maxIdx
+
   const last = data.length > 0 ? data[data.length - 1].price : null
   // Verandering over de getoonde periode; op 1D t.o.v. het vorige slot (zoals Yahoo).
   const base =
@@ -194,16 +213,69 @@ export default function PriceChartModal({
           {loading && <span className="ml-2 self-center text-xs text-ink-3">Laden…</span>}
         </div>
 
-        <div className="mt-3 h-72">
+        <div className="mt-3 h-80">
           {error ? (
             <p className="flex h-full items-center justify-center text-sm text-crit">{error}</p>
           ) : data.length === 0 ? (
-            <p className="flex h-full items-center justify-center text-sm text-ink-3">
-              {loading ? 'Laden…' : 'Geen koersdata voor deze periode.'}
-            </p>
+            <div className="flex h-full flex-col items-center justify-center gap-1.5 px-6 text-center text-ink-3">
+              {loading ? (
+                <span className="text-sm">Laden…</span>
+              ) : range === '1d' ? (
+                <>
+                  <span className="text-sm">Nog geen koersen voor vandaag.</span>
+                  <span className="max-w-md text-xs">
+                    De beurs is net open of Yahoo levert de (doorgaans ~15 min vertraagde)
+                    intradaykoersen nog niet. Probeer straks opnieuw, of kies een langere periode.
+                  </span>
+                  {prevClose !== null && (
+                    <span className="mt-1 text-xs">
+                      Vorige slotkoers:{' '}
+                      <span className="font-medium tabular-nums text-ink-2">
+                        {priceFmt.format(prevClose)}
+                        {currency ? ` ${currency}` : ''}
+                      </span>
+                    </span>
+                  )}
+                </>
+              ) : (
+                <span className="text-sm">Geen koersdata voor deze periode.</span>
+              )}
+            </div>
           ) : (
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={data} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
+              <AreaChart
+                data={data}
+                margin={{ top: 4, right: 4, bottom: 0, left: 0 }}
+                style={{ cursor: 'crosshair' }}
+                onMouseDown={(s) => {
+                  const i = Number(s?.activeLabel)
+                  if (!Number.isNaN(i)) {
+                    setDragStart(i)
+                    setDragEnd(i)
+                  }
+                }}
+                onMouseMove={(s) => {
+                  if (dragStart === null) return
+                  const i = Number(s?.activeLabel)
+                  if (!Number.isNaN(i)) setDragEnd(i)
+                }}
+                onMouseUp={() => {
+                  if (dragStart !== null && dragEnd !== null && dragStart !== dragEnd) {
+                    setZoom(dragStart < dragEnd ? [dragStart, dragEnd] : [dragEnd, dragStart])
+                  }
+                  setDragStart(null)
+                  setDragEnd(null)
+                }}
+                onMouseLeave={() => {
+                  setDragStart(null)
+                  setDragEnd(null)
+                }}
+                onDoubleClick={() => {
+                  setZoom(null)
+                  setDragStart(null)
+                  setDragEnd(null)
+                }}
+              >
                 <defs>
                   <linearGradient id="priceFill" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor={color} stopOpacity={0.16} />
@@ -253,6 +325,38 @@ export default function PriceChartModal({
                   fill="url(#priceFill)"
                   dot={false}
                   isAnimationActive={false}
+                />
+                {/* Zone tijdens het slepen om een periode te selecteren. */}
+                {dragStart !== null && dragEnd !== null && dragStart !== dragEnd && (
+                  <ReferenceArea
+                    x1={Math.min(dragStart, dragEnd)}
+                    x2={Math.max(dragStart, dragEnd)}
+                    fill="#898781"
+                    fillOpacity={0.1}
+                  />
+                )}
+                {/* Schuifbalk onderaan: sleep de handvatten of de balk om in te zoomen. */}
+                <Brush
+                  dataKey="i"
+                  height={24}
+                  travellerWidth={8}
+                  gap={1}
+                  stroke="#b8b7b0"
+                  fill="rgba(11, 11, 11, 0.02)"
+                  tickFormatter={(i: number) => data[i]?.label ?? ''}
+                  startIndex={startIndex}
+                  endIndex={endIndex}
+                  onChange={(r) => {
+                    if (
+                      typeof r.startIndex === 'number' &&
+                      typeof r.endIndex === 'number' &&
+                      (r.startIndex !== 0 || r.endIndex !== maxIdx)
+                    ) {
+                      setZoom([r.startIndex, r.endIndex])
+                    } else {
+                      setZoom(null)
+                    }
+                  }}
                 />
               </AreaChart>
             </ResponsiveContainer>
