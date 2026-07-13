@@ -11,7 +11,9 @@ import type {
 } from '../api/types'
 import CategoryPicker from '../components/CategoryPicker'
 import PeriodPicker, { currentPeriod, type Period } from '../components/PeriodPicker'
+import { IconTrash } from '../components/icons'
 import { formatCentsPlain, formatDate, formatMonthYear, parseEuroToCents } from '../lib/format'
+import { useIsMobile } from '../lib/useMediaQuery'
 import { useAppState } from '../state/AppState'
 
 // Leereffect (spec §5.3): na een categoriecorrectie op een transactie met
@@ -41,6 +43,7 @@ function todayIso(): string {
 
 export default function Transactions() {
   const { contextId } = useAppState()
+  const isMobile = useIsMobile()
   const [period, setPeriod] = useState<Period>(() => currentPeriod())
   const [typeFilter, setTypeFilter] = useState<CategoryType | ''>('')
   const [categoryFilter, setCategoryFilter] = useState<number | ''>('')
@@ -182,7 +185,7 @@ export default function Transactions() {
         <section className="overflow-x-auto rounded-2xl border border-edge bg-surface">
           <div className="flex flex-wrap items-center gap-2 border-b border-line px-5 py-3">
             <h2 className="text-sm font-medium">Transacties</h2>
-            <div className="ml-auto flex items-center gap-2">
+            <div className="flex w-full flex-col gap-2 sm:ml-auto sm:w-auto sm:flex-row sm:items-center">
               <select
                 value={typeFilter}
                 onChange={(e) => {
@@ -223,6 +226,8 @@ export default function Transactions() {
             <p className="px-5 py-10 text-center text-sm text-ink-2">
               Nog geen transacties in deze periode.
             </p>
+          ) : isMobile ? (
+            <TransactionCards transactions={transactions} onEdit={startEdit} onDelete={remove} />
           ) : (
             <TransactionTable transactions={transactions} onEdit={startEdit} onDelete={remove} />
           )}
@@ -455,6 +460,54 @@ function TransactionForm({
         </div>
       </form>
     </section>
+  )
+}
+
+// Mobiele weergave: kaartje per transactie, tap = bewerken (zelfde flow als de
+// Bewerken-knop in de tabel), expliciete verwijderknop i.p.v. tekstlinks.
+function TransactionCards({
+  transactions,
+  onEdit,
+  onDelete,
+}: {
+  transactions: Transaction[]
+  onEdit: (tx: Transaction) => void
+  onDelete: (tx: Transaction) => void
+}) {
+  return (
+    <ul className="divide-y divide-line">
+      {transactions.map((tx) => (
+        <li key={tx.id} className="flex items-center gap-1 px-4 py-1">
+          <button
+            onClick={() => onEdit(tx)}
+            className="min-w-0 flex-1 py-2 text-left active:bg-raised/50"
+          >
+            <span className="flex items-center gap-2 text-sm">
+              <span
+                aria-hidden
+                className={`inline-block size-2 shrink-0 rounded-full ${TYPE_DOT[tx.type]}`}
+              />
+              <span className="min-w-0 flex-1 truncate font-medium">
+                {tx.category_name ?? <span className="font-normal text-ink-3">Geen categorie</span>}
+              </span>
+              <span className="shrink-0 tabular-nums">{formatCentsPlain(tx.amount_cents)}</span>
+            </span>
+            <span className="mt-0.5 block truncate pl-4 text-xs text-ink-3">
+              {formatDate(tx.date)}
+              {tx.effective_date !== tx.date && ` (telt voor ${formatDate(tx.effective_date)})`}
+              {tx.description && ` · ${tx.description}`}
+            </span>
+          </button>
+          <button
+            onClick={() => onDelete(tx)}
+            aria-label="Verwijderen"
+            className="shrink-0 rounded-lg p-2.5 text-ink-3 transition-colors hover:text-crit active:bg-raised"
+          >
+            <IconTrash className="size-4" />
+          </button>
+        </li>
+      ))}
+    </ul>
   )
 }
 

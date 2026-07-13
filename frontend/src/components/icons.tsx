@@ -108,3 +108,12 @@ export const IconPencil = svg(
     <path d="M14.5 6.5l3 3" />
   </>,
 )
+
+export const IconTrash = svg(
+  <>
+    <path d="M4 6.5h16" />
+    <path d="M9.5 6.5V4.8c0-.7.6-1.3 1.3-1.3h2.4c.7 0 1.3.6 1.3 1.3v1.7" />
+    <path d="M6.5 6.5l1 13c.1.8.7 1.5 1.5 1.5h6c.8 0 1.4-.7 1.5-1.5l1-13" />
+    <path d="M10 10.5v6M14 10.5v6" />
+  </>,
+)
