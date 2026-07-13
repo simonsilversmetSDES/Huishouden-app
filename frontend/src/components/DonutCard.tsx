@@ -63,7 +63,7 @@ export default function DonutCard({
   }
 
   return (
-    <div className="flex flex-col rounded-2xl border border-edge bg-surface p-5">
+    <div className="flex min-w-0 flex-col rounded-2xl border border-edge bg-surface p-5">
       <h3 className="text-sm font-medium text-ink-2">{title}</h3>
       {subtitle && <p className="mt-0.5 text-xs text-ink-3">{subtitle}</p>}
       {segments.length === 0 ? (
@@ -71,7 +71,8 @@ export default function DonutCard({
           Geen bedragen in deze periode
         </p>
       ) : (
-        <div className="mt-3 flex flex-1 items-center gap-5">
+        // Op smalle schermen ring boven de legende — naast elkaar past niet in 390px.
+        <div className="mt-3 flex flex-1 items-center gap-5 max-md:flex-col max-md:gap-4">
           <div className={`${ringClass} shrink-0`}>
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
@@ -101,7 +102,7 @@ export default function DonutCard({
               </PieChart>
             </ResponsiveContainer>
           </div>
-          <div className="min-w-0 flex-1">
+          <div className="min-w-0 flex-1 max-md:w-full">
             <ul className="space-y-1.5 text-sm">
               {segments.map((s) => {
                 const off = hidden.has(s.name)

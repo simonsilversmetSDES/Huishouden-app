@@ -692,11 +692,13 @@ function GroupRows({
   return (
     <>
       <tr className="border-t border-line">
+        {/* De cel beslaat de volle tabelbreedte en kan zelf niet sticky zijn;
+            de tekst plakt daarom zelf aan de linkerrand van de scrollcontainer. */}
         <td
           colSpan={14}
-          className="sticky-col px-4 pb-1 pt-4 text-xs font-medium uppercase tracking-wide text-ink-3 max-md:px-3"
+          className="px-4 pb-1 pt-4 text-xs font-medium uppercase tracking-wide text-ink-3 max-md:px-3"
         >
-          {group.type}
+          <span className="sticky left-4 inline-block max-md:left-3">{group.type}</span>
         </td>
       </tr>
       {group.categories.map((row) => (
@@ -846,9 +848,9 @@ function AddCategoryRow({
 
   return (
     <tr>
-      <td colSpan={14} className="sticky-col px-4 py-1.5 max-md:px-3">
+      <td colSpan={14} className="px-4 py-1.5 max-md:px-3">
         {open ? (
-          <div className="flex items-center gap-2">
+          <div className="sticky left-4 flex w-max items-center gap-2 max-md:left-3">
             <input
               autoFocus
               value={name}
@@ -877,7 +879,10 @@ function AddCategoryRow({
             </button>
           </div>
         ) : (
-          <button onClick={() => setOpen(true)} className="text-xs text-ink-3 hover:text-accent">
+          <button
+            onClick={() => setOpen(true)}
+            className="sticky left-4 block w-max text-xs text-ink-3 hover:text-accent max-md:left-3"
+          >
             + categorie
           </button>
         )}
