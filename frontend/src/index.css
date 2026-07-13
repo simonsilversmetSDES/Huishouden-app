@@ -22,6 +22,12 @@
   --color-crit: #c62828;
 }
 
+/* Varianten op pointertype: `pointer-coarse:` voor touch (grotere tap-targets,
+   hover-knoppen altijd zichtbaar), `pointer-fine:` voor muis. Layout-verschillen
+   gaan via de gewone breakpoints (md:); gedrag via pointertype. */
+@custom-variant pointer-coarse (@media (pointer: coarse));
+@custom-variant pointer-fine (@media (pointer: fine));
+
 html {
   color-scheme: light;
 }
@@ -30,4 +36,39 @@ body {
   background-color: var(--color-page);
   color: var(--color-ink);
   -webkit-font-smoothing: antialiased;
+}
+
+/* Vastgepinde eerste kolom in horizontaal scrollende tabellen. De opake
+   achtergrond + schaduwrand voorkomen dat scrollende cellen erdoorheen
+   schijnen. */
+.sticky-col {
+  position: sticky;
+  left: 0;
+  z-index: 10;
+  background: var(--color-surface);
+  box-shadow: 1px 0 0 var(--color-line);
+}
+
+/* iOS zoomt automatisch in op inputs met een font kleiner dan 16px; op
+   touch-toestellen met een smal scherm dwingen we daarom 16px af. */
+@media (pointer: coarse) and (max-width: 767px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
+/* Voor cellen met long-press-interactie: geen iOS-callout of tekstselectie. */
+.no-callout {
+  -webkit-touch-callout: none;
+  user-select: none;
+}
+
+/* Horizontaal scrollbare pill-rijen (context-switcher, subtabs): scrollbar weg. */
+.scrollbar-none {
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
 }
