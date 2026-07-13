@@ -123,3 +123,27 @@ class TestHealth:
         resp = client.get("/api/health")
         assert resp.status_code == 200
         assert resp.json()["status"] == "ok"
+
+
+class TestSecretKeyGuard:
+    """Buiten development weigert de app een onveilige SECRET_KEY (startup-guard)."""
+
+    def test_production_weigert_default_key(self) -> None:
+        with pytest.raises(RuntimeError, match="SECRET_KEY"):
+            Settings(_env_file=None, app_env="production")
+
+    def test_production_weigert_lege_key(self) -> None:
+        with pytest.raises(RuntimeError, match="SECRET_KEY"):
+            Settings(_env_file=None, app_env="production", secret_key="")
+
+    def test_production_weigert_korte_key(self) -> None:
+        with pytest.raises(RuntimeError, match="SECRET_KEY"):
+            Settings(_env_file=None, app_env="production", secret_key="kort-maar-niet-default")
+
+    def test_production_aanvaardt_lange_key(self) -> None:
+        settings = Settings(_env_file=None, app_env="production", secret_key="x" * 32)
+        assert settings.secret_key == "x" * 32
+
+    def test_development_laat_default_toe(self) -> None:
+        settings = Settings(_env_file=None)
+        assert settings.app_env == "development"
