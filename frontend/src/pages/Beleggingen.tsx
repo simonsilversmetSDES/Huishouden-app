@@ -20,6 +20,7 @@ import type {
 import DonutCard from '../components/DonutCard'
 import PortfolioHistoryChart from '../components/PortfolioHistoryChart'
 import PriceChartModal from '../components/PriceChartModal'
+import { IconPencil, IconReceipt } from '../components/icons'
 import { formatCents, formatCentsPlain, formatDate } from '../lib/format'
 import { useAppState } from '../state/AppState'
 
@@ -69,6 +70,7 @@ export default function Beleggingen() {
   const [viewingTx, setViewingTx] = useState<{ id: number; name: string } | null>(null)
   const [chart, setChart] = useState<{ id: number; name: string; ticker: string } | null>(null)
   const [selected, setSelected] = useState<Set<number>>(new Set())
+  const [gainView, setGainView] = useState<'start' | 'today'>('start')
   const knownRef = useRef<Set<number>>(new Set())
   const autoFetchedRef = useRef(false)
 
@@ -147,6 +149,14 @@ export default function Beleggingen() {
   const totalCost = visible.reduce((sum, p) => sum + p.cost_cents, 0)
   const totalGain = totalValue - totalCost
   const totalGainPct = totalCost > 0 ? (totalGain / totalCost) * 100 : null
+  // Dagwinst van de selectie: som van de beschikbare dag-winsten; percentage t.o.v.
+  // de vorige waarde (huidige waarde − dagwinst), net als per positie.
+  const dayCells = visible.map((p) => p.day_gain_cents).filter((c): c is number => c !== null)
+  const totalDayCents = dayCells.length > 0 ? dayCells.reduce((sum, c) => sum + c, 0) : null
+  const totalDayPct =
+    totalDayCents !== null && totalValue - totalDayCents > 0
+      ? (totalDayCents / (totalValue - totalDayCents)) * 100
+      : null
   const donutRows = visible
     .filter((p) => p.value_cents !== null && p.value_cents > 0)
     .map((p) => ({ name: p.name, cents: p.value_cents as number }))
@@ -178,8 +188,12 @@ export default function Beleggingen() {
           <Overview
             totalValueCents={totalValue}
             totalCostCents={totalCost}
-            gainCents={totalGain}
-            gainPct={totalGainPct}
+            startGainCents={totalGain}
+            startGainPct={totalGainPct}
+            dayGainCents={totalDayCents}
+            dayGainPct={totalDayPct}
+            gainView={gainView}
+            onGainView={setGainView}
             donutRows={donutRows}
           />
           <PortfolioHistoryChart history={history} selected={selected} />
@@ -189,7 +203,13 @@ export default function Beleggingen() {
             securities={securities}
             selected={selected}
             selectedTotalValue={totalValue}
+            gainView={gainView}
+            onGainView={setGainView}
             onToggle={toggle}
+            onSolo={(id) => setSelected(new Set([id]))}
+            onSetAll={(on) =>
+              setSelected(on ? new Set(portfolio.positions.map((p) => p.security_id)) : new Set())
+            }
             onEdit={setEditing}
             onViewTransactions={(id, name) => setViewingTx({ id, name })}
             onShowChart={(id, name, ticker) => setChart({ id, name, ticker })}
@@ -235,34 +255,124 @@ export default function Beleggingen() {
   )
 }
 
+/** Bolero-stijl tabs tussen totaalrendement en dagwinst: actieve tab met onderlijn. */
+function GainViewToggle({
+  value,
+  onChange,
+}: {
+  value: 'start' | 'today'
+  onChange: (v: 'start' | 'today') => void
+}) {
+  const opts: { key: 'start' | 'today'; label: string }[] = [
+    { key: 'start', label: 'Sinds start' },
+    { key: 'today', label: 'Vandaag' },
+  ]
+  return (
+    <div className="flex gap-5 text-sm">
+      {opts.map((o) => (
+        <button
+          key={o.key}
+          type="button"
+          onClick={() => onChange(o.key)}
+          aria-pressed={value === o.key}
+          className={`-mb-px border-b-2 pb-2 font-medium transition-colors ${
+            value === o.key
+              ? 'border-accent text-ink'
+              : 'border-transparent text-ink-3 hover:text-ink-2'
+          }`}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 function Overview({
   totalValueCents,
   totalCostCents,
-  gainCents,
-  gainPct,
+  startGainCents,
+  startGainPct,
+  dayGainCents,
+  dayGainPct,
+  gainView,
+  onGainView,
   donutRows,
 }: {
   totalValueCents: number
   totalCostCents: number
-  gainCents: number
-  gainPct: number | null
+  startGainCents: number
+  startGainPct: number | null
+  dayGainCents: number | null
+  dayGainPct: number | null
+  gainView: 'start' | 'today'
+  onGainView: (v: 'start' | 'today') => void
   donutRows: { name: string; cents: number }[]
 }) {
+  // Waarde blijft de waarde; enkel de getoonde winst wisselt met de toggle (Bolero).
+  const gainCents = gainView === 'today' ? dayGainCents : startGainCents
+  const gainPct = gainView === 'today' ? dayGainPct : startGainPct
+  const tone =
+    gainCents === null
+      ? 'text-ink-3'
+      : gainCents < 0
+        ? 'text-crit'
+        : gainCents > 0
+          ? 'text-good'
+          : 'text-ink-2'
   return (
-    <section className="grid gap-4 lg:grid-cols-2">
-      <div className="grid gap-4 sm:grid-cols-3 lg:col-span-1 lg:grid-cols-1">
-        <Tile label="Totale waarde" value={formatCents(totalValueCents)} />
-        <Tile label="Totale inleg" value={formatCents(totalCostCents)} />
-        <Tile
-          label="Rendement"
-          value={`${gainCents > 0 ? '+' : ''}${formatCents(gainCents)}`}
-          tone={gainCents < 0 ? 'crit' : 'good'}
-          extra={
-            gainPct !== null ? `${gainCents > 0 ? '+' : ''}${pctFmt.format(gainPct)} %` : undefined
-          }
-        />
+    // Asymmetrisch: waarde-kaart smal (2fr), donut breed (3fr) zodat de
+    // effectnamen in de legende niet afgekapt worden.
+    <section className="grid gap-4 lg:grid-cols-[2fr_3fr]">
+      <div className="flex flex-col rounded-2xl border border-edge bg-surface p-5">
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-sm text-ink-3">Totale waarde</p>
+          <GainViewToggle value={gainView} onChange={onGainView} />
+        </div>
+        {/* Groot bedrag verticaal gecentreerd, links uitgelijnd. */}
+        <div className="flex flex-1 flex-col items-start justify-center py-6">
+          <p className="text-4xl font-semibold tracking-tight tabular-nums">
+            {formatCentsPlain(totalValueCents)} <span className="text-xl text-ink-2">EUR</span>
+          </p>
+          {gainCents === null ? (
+            <p className="mt-2 text-sm text-ink-3">Geen dagkoersen beschikbaar</p>
+          ) : (
+            <p
+              className={`mt-2 flex items-baseline gap-3 text-base font-medium tabular-nums ${tone}`}
+            >
+              <span>
+                {gainCents > 0 ? '+' : ''}
+                {formatCentsPlain(gainCents)} EUR
+              </span>
+              {gainPct !== null && (
+                <span
+                  className={`rounded px-1.5 py-0.5 font-semibold ${
+                    gainCents < 0 ? 'bg-crit/10' : gainCents > 0 ? 'bg-good/10' : 'bg-raised'
+                  }`}
+                >
+                  {gainPct > 0 ? '+' : ''}
+                  {pctFmt.format(gainPct)} %
+                </span>
+              )}
+            </p>
+          )}
+          <p className="mt-1.5 text-xs text-ink-3">
+            {gainView === 'today' ? 'vandaag' : 'sinds start'}
+          </p>
+        </div>
+        <div className="flex items-center justify-between border-t border-line pt-3 text-sm">
+          <span className="text-ink-3">Inleg</span>
+          <span className="font-medium tabular-nums text-ink-2">
+            {formatCentsPlain(totalCostCents)} EUR
+          </span>
+        </div>
       </div>
-      <DonutCard title="Verdeling portefeuille" kind="saving" rows={donutRows} />
+      <DonutCard
+        title="Verdeling portefeuille"
+        kind="saving"
+        rows={donutRows}
+        ringClass="h-44 w-44"
+      />
     </section>
   )
 }
@@ -347,49 +457,27 @@ function YearlyReturns({ years, benchmark }: { years: YearReturn[]; benchmark: B
   )
 }
 
-function Tile({
-  label,
-  value,
-  tone,
-  extra,
-}: {
-  label: string
-  value: string
-  tone?: 'good' | 'crit'
-  extra?: string
-}) {
-  return (
-    <div className="rounded-2xl border border-edge bg-surface p-5">
-      <p className="text-sm text-ink-3">{label}</p>
-      <p
-        className={`mt-1 text-2xl font-semibold tracking-tight ${
-          tone === 'crit' ? 'text-crit' : tone === 'good' ? 'text-good' : ''
-        }`}
-      >
-        {value}
-      </p>
-      {extra && <p className="mt-2 text-xs text-ink-3">{extra}</p>}
-    </div>
-  )
-}
-
-/** Winst-cel: bedrag met percentage eronder — vermijdt omslaande regels. */
-function GainCell({ cents, pct }: { cents: number | null; pct: number | null }) {
-  if (cents === null) return <span className="text-ink-3">–</span>
+/** Winst-regel Bolero-stijl: bedrag en percentage naast elkaar, in groen/rood;
+ * het percentage krijgt een doorzichtige achtergrond-pil in dezelfde tint. */
+function GainLine({ cents, pct }: { cents: number | null; pct: number | null }) {
+  if (cents === null) return <p className="mt-0.5 text-xs text-ink-3">–</p>
   const tone = cents < 0 ? 'text-crit' : cents > 0 ? 'text-good' : 'text-ink-3'
+  const pctBg = cents < 0 ? 'bg-crit/10' : cents > 0 ? 'bg-good/10' : 'bg-raised'
   return (
-    <div className="leading-tight">
-      <div className={tone}>
+    <p
+      className={`mt-0.5 flex items-center justify-end gap-1.5 text-xs font-medium tabular-nums ${tone}`}
+    >
+      <span>
         {cents > 0 ? '+' : ''}
-        {formatCentsPlain(cents)}
-      </div>
+        {formatCentsPlain(cents)} EUR
+      </span>
       {pct !== null && (
-        <div className="text-xs text-ink-3">
+        <span className={`rounded px-1 py-px font-semibold ${pctBg}`}>
           {pct > 0 ? '+' : ''}
           {pctFmt.format(pct)} %
-        </div>
+        </span>
       )}
-    </div>
+    </p>
   )
 }
 
@@ -398,7 +486,11 @@ function PositionsTable({
   securities,
   selected,
   selectedTotalValue,
+  gainView,
+  onGainView,
   onToggle,
+  onSolo,
+  onSetAll,
   onEdit,
   onViewTransactions,
   onShowChart,
@@ -407,7 +499,11 @@ function PositionsTable({
   securities: Security[]
   selected: Set<number>
   selectedTotalValue: number
+  gainView: 'start' | 'today'
+  onGainView: (v: 'start' | 'today') => void
   onToggle: (securityId: number) => void
+  onSolo: (securityId: number) => void
+  onSetAll: (on: boolean) => void
   onEdit: (security: Security) => void
   onViewTransactions: (securityId: number, name: string) => void
   onShowChart: (securityId: number, name: string, ticker: string) => void
@@ -429,138 +525,123 @@ function PositionsTable({
   const totalDay = dayCells.length > 0 ? dayCells.reduce((sum, c) => sum + c, 0) : null
   const totalCost = visible.reduce((sum, p) => sum + p.cost_cents, 0)
   const totalGain = selectedTotalValue - totalCost
-  const th = 'px-3 py-3 text-right text-xs font-medium uppercase tracking-wide'
+  const selCount = rows.filter((p) => selected.has(p.security_id)).length
+  const allOn = selCount === rows.length && rows.length > 0
+  const someOn = selCount > 0 && !allOn
   return (
-    <section className="overflow-x-auto rounded-2xl border border-edge bg-surface">
-      <table className="w-full min-w-[980px] text-sm">
-        <thead>
-          <tr className="border-b border-line text-ink-3">
-            <th className="py-3 pl-5 pr-1" />
-            <th className={`${th} text-left`}>Effect</th>
-            <th className={th}>Aantal</th>
-            <th className={th}>Koers</th>
-            <th className={th}>Waarde</th>
-            <th className={th}>Vandaag</th>
-            <th className={th}>Winst/verlies</th>
-            <th className={th}>% port.</th>
-            <th className="px-5 py-3" />
-          </tr>
-        </thead>
-        <tbody className="tabular-nums">
-          {rows.map((p) => {
-            const on = selected.has(p.security_id)
-            const pct =
-              on && p.value_cents !== null && selectedTotalValue > 0
-                ? (p.value_cents / selectedTotalValue) * 100
-                : null
-            return (
-              <tr
-                key={p.security_id}
-                className={`border-b border-line transition-opacity last:border-b-0 hover:bg-raised/50 ${
-                  on ? '' : 'opacity-40'
-                }`}
-              >
-                <td className="py-2.5 pl-5 pr-1">
-                  <input
-                    type="checkbox"
-                    checked={on}
-                    onChange={() => onToggle(p.security_id)}
-                    aria-label={`${p.name} meetellen`}
-                    className="size-4 accent-accent"
-                  />
-                </td>
-                <td className="px-3 py-2.5">
-                  {p.ticker ? (
-                    <button
-                      onClick={() => onShowChart(p.security_id, p.name, p.ticker as string)}
-                      title="Koersgrafiek tonen"
-                      className="group block text-left leading-tight"
-                    >
-                      <span className="font-medium group-hover:text-accent group-hover:underline">
-                        {p.name}
-                      </span>
-                      <span className="mt-0.5 block font-mono text-[11px] tracking-wide text-ink-3">
-                        {p.ticker}
-                      </span>
-                    </button>
-                  ) : (
-                    <div className="leading-tight">
-                      <span className="font-medium">{p.name}</span>
-                      <span className="mt-0.5 block text-[11px] text-warn">geen ticker</span>
-                    </div>
-                  )}
-                </td>
-                <td className="px-3 py-2.5 text-right text-ink-2">{dec(p.shares)}</td>
-                <td className="px-3 py-2.5 text-right text-ink-2">{dec2(p.current_price)}</td>
-                <td className="px-3 py-2.5 text-right font-medium">
+    <section className="rounded-2xl border border-edge bg-surface">
+      {/* Kopbalk: alles aan/uit links, de Sinds start/Vandaag-tabs rechts (Bolero). */}
+      <div className="flex items-end justify-between gap-3 border-b border-line px-5 pt-3">
+        <input
+          type="checkbox"
+          checked={allOn}
+          ref={(el) => {
+            if (el) el.indeterminate = someOn
+          }}
+          onChange={() => onSetAll(!allOn)}
+          aria-label="Alles aan- of uitvinken"
+          title="Alles aan- of uitvinken"
+          className="mb-2.5 size-4 accent-accent"
+        />
+        <GainViewToggle value={gainView} onChange={onGainView} />
+      </div>
+      <ul className="text-sm">
+        {rows.map((p) => {
+          const on = selected.has(p.security_id)
+          // Bolero-subtitel: "125,89 EUR | 165 st." (koers weglaten zonder koers).
+          const sub = `${
+            p.current_price !== null ? `${dec2(p.current_price)} EUR | ` : ''
+          }${dec(p.shares)} st.`
+          return (
+            <li
+              key={p.security_id}
+              className={`flex items-center gap-3 border-b border-line px-5 py-3 transition-opacity last:border-b-0 hover:bg-raised/50 ${
+                on ? '' : 'opacity-40'
+              }`}
+            >
+              <input
+                type="checkbox"
+                checked={on}
+                onChange={() => onToggle(p.security_id)}
+                onDoubleClick={() => onSolo(p.security_id)}
+                aria-label={`${p.name} meetellen`}
+                title="Aanvinken = meetellen · dubbelklik = enkel dit effect"
+                className="size-4 shrink-0 accent-accent"
+              />
+              {p.ticker ? (
+                <button
+                  onClick={() => onShowChart(p.security_id, p.name, p.ticker as string)}
+                  title={`Koersgrafiek tonen (${p.ticker})`}
+                  className="group min-w-0 text-left leading-tight"
+                >
+                  <span className="block truncate font-medium group-hover:text-accent group-hover:underline">
+                    {p.name}
+                  </span>
+                  <span className="mt-0.5 block text-xs tabular-nums text-ink-3">{sub}</span>
+                </button>
+              ) : (
+                <div className="min-w-0 leading-tight">
+                  <span className="block truncate font-medium">{p.name}</span>
+                  <span className="mt-0.5 block text-xs tabular-nums text-ink-3">
+                    {sub} <span className="text-warn">· geen ticker</span>
+                  </span>
+                </div>
+              )}
+              <div className="ml-auto shrink-0 text-right leading-tight tabular-nums">
+                <p className="font-semibold">
                   {p.value_cents === null ? (
                     <span className="font-normal text-ink-3">–</span>
                   ) : (
-                    formatCentsPlain(p.value_cents)
+                    `${formatCentsPlain(p.value_cents)} EUR`
                   )}
-                </td>
-                <td className="px-3 py-2.5 text-right">
-                  <GainCell cents={p.day_gain_cents} pct={p.day_gain_pct} />
-                </td>
-                <td className="px-3 py-2.5 text-right">
-                  <GainCell cents={p.gain_cents} pct={p.gain_pct} />
-                </td>
-                <td className="px-3 py-2.5 text-right text-ink-2">
-                  {pct !== null ? (
-                    <div className="flex items-center justify-end gap-2">
-                      <span>{pctFmt.format(pct)} %</span>
-                      <span className="h-1.5 w-12 shrink-0 overflow-hidden rounded-full bg-raised">
-                        <span
-                          className="block h-full rounded-full bg-saving/70"
-                          style={{ width: `${Math.min(100, pct)}%` }}
-                        />
-                      </span>
-                    </div>
-                  ) : (
-                    <span className="text-ink-3">–</span>
-                  )}
-                </td>
-                <td className="whitespace-nowrap px-5 py-2.5 text-right">
+                </p>
+                <GainLine
+                  cents={gainView === 'today' ? p.day_gain_cents : p.gain_cents}
+                  pct={gainView === 'today' ? p.day_gain_pct : p.gain_pct}
+                />
+              </div>
+              <div className="flex shrink-0 items-center gap-1">
+                <button
+                  onClick={() => onViewTransactions(p.security_id, p.name)}
+                  title="Transacties"
+                  aria-label={`Transacties van ${p.name}`}
+                  className="rounded-md p-1.5 text-ink-3 transition-colors hover:bg-raised hover:text-ink-2"
+                >
+                  <IconReceipt className="size-4" />
+                </button>
+                {byId.has(p.security_id) && (
                   <button
-                    onClick={() => onViewTransactions(p.security_id, p.name)}
-                    className="text-xs text-ink-3 hover:text-ink-2 hover:underline"
+                    onClick={() => onEdit(byId.get(p.security_id) as Security)}
+                    title="Bewerken"
+                    aria-label={`${p.name} bewerken`}
+                    className="rounded-md p-1.5 text-ink-3 transition-colors hover:bg-raised hover:text-ink-2"
                   >
-                    Transacties
+                    <IconPencil className="size-4" />
                   </button>
-                  {byId.has(p.security_id) && (
-                    <button
-                      onClick={() => onEdit(byId.get(p.security_id) as Security)}
-                      className="ml-3 text-xs text-ink-3 hover:text-ink-2 hover:underline"
-                    >
-                      Bewerken
-                    </button>
-                  )}
-                </td>
-              </tr>
-            )
-          })}
-        </tbody>
-        <tfoot className="tabular-nums">
-          <tr className="border-t-2 border-line bg-raised/40 font-medium">
-            <td className="py-2.5 pl-5 pr-1" />
-            <td className="px-3 py-2.5">Totaal</td>
-            <td />
-            <td />
-            <td className="px-3 py-2.5 text-right">{formatCentsPlain(selectedTotalValue)}</td>
-            <td className="px-3 py-2.5 text-right">
-              <GainCell cents={totalDay} pct={null} />
-            </td>
-            <td className="px-3 py-2.5 text-right">
-              <GainCell
-                cents={totalGain}
-                pct={totalCost > 0 ? (totalGain / totalCost) * 100 : null}
-              />
-            </td>
-            <td />
-            <td className="px-5 py-2.5" />
-          </tr>
-        </tfoot>
-      </table>
+                )}
+              </div>
+            </li>
+          )
+        })}
+      </ul>
+      <div className="flex items-center justify-between gap-3 rounded-b-2xl border-t-2 border-line bg-raised/40 px-5 py-3 text-sm">
+        <span className="font-medium">Totaal</span>
+        <div className="text-right leading-tight tabular-nums">
+          <p className="font-semibold">{formatCentsPlain(selectedTotalValue)} EUR</p>
+          <GainLine
+            cents={gainView === 'today' ? totalDay : totalGain}
+            pct={
+              gainView === 'today'
+                ? totalDay !== null && selectedTotalValue - totalDay > 0
+                  ? (totalDay / (selectedTotalValue - totalDay)) * 100
+                  : null
+                : totalCost > 0
+                  ? (totalGain / totalCost) * 100
+                  : null
+            }
+          />
+        </div>
+      </div>
     </section>
   )
 }

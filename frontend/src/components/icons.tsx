@@ -101,3 +101,10 @@ export const IconHome = svg(
     <path d="M10 20v-5h4v5" />
   </>,
 )
+
+export const IconPencil = svg(
+  <>
+    <path d="M4 20l4-1L19 8a2.1 2.1 0 0 0-3-3L5 16z" />
+    <path d="M14.5 6.5l3 3" />
+  </>,
+)
