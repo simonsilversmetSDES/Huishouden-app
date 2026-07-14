@@ -663,7 +663,7 @@ function PositionsTable({
                   pct={gainView === 'today' ? p.day_gain_pct : p.gain_pct}
                 />
               </div>
-              <div className="flex shrink-0 items-center gap-1">
+              <div className="flex shrink-0 items-center gap-1 max-md:-mr-2">
                 {isMobile ? (
                   <PositionActionsMenu
                     onTransactions={() => onViewTransactions(p.security_id, p.name)}
