@@ -20,7 +20,7 @@ import type {
 import DonutCard from '../components/DonutCard'
 import PortfolioHistoryChart from '../components/PortfolioHistoryChart'
 import PriceChartModal from '../components/PriceChartModal'
-import { IconPencil, IconReceipt, IconTrash } from '../components/icons'
+import { IconDots, IconPencil, IconReceipt, IconTrash } from '../components/icons'
 import { formatCents, formatCentsPlain, formatDate } from '../lib/format'
 import { useIsMobile } from '../lib/useMediaQuery'
 import { useAppState } from '../state/AppState'
@@ -408,13 +408,15 @@ function YearlyReturns({ years, benchmark }: { years: YearReturn[]; benchmark: B
         </p>
       ) : (
         <>
-          <div className="flex flex-wrap gap-2">
+          {/* Horizontale slider: één rij die je zijdelings scrollt (met snap),
+              i.p.v. kaarten die over meerdere rijen wrappen. */}
+          <div className="-mx-1 flex snap-x gap-2 overflow-x-auto px-1 pb-1">
             {years.map((y) => {
               const bench = benchByYear.get(y.year)
               return (
                 <div
                   key={y.year}
-                  className="rounded-2xl border border-edge bg-surface px-4 py-3 text-sm"
+                  className="w-44 shrink-0 snap-start rounded-2xl border border-edge bg-surface px-4 py-3 text-sm"
                   title={
                     y.complete
                       ? undefined
@@ -482,6 +484,65 @@ function GainLine({ cents, pct }: { cents: number | null; pct: number | null }) 
   )
 }
 
+// Mobiel: één ⋯-knop i.p.v. twee icoonknoppen; tikken opent een keuzemenu
+// (Transacties / Bewerken). Een onzichtbaar vlak eronder vangt de klik-buiten.
+function PositionActionsMenu({
+  onTransactions,
+  onEdit,
+}: {
+  onTransactions: () => void
+  onEdit?: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        aria-label="Acties"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className="rounded-md p-2.5 text-ink-3 transition-colors hover:bg-raised hover:text-ink-2"
+      >
+        <IconDots className="size-4" />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div
+            role="menu"
+            className="absolute right-0 top-full z-20 mt-1 w-40 overflow-hidden rounded-lg border border-edge bg-surface shadow-lg"
+          >
+            <button
+              role="menuitem"
+              onClick={() => {
+                setOpen(false)
+                onTransactions()
+              }}
+              className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm hover:bg-raised"
+            >
+              <IconReceipt className="size-4 text-ink-3" />
+              Transacties
+            </button>
+            {onEdit && (
+              <button
+                role="menuitem"
+                onClick={() => {
+                  setOpen(false)
+                  onEdit()
+                }}
+                className="flex w-full items-center gap-2 border-t border-line px-3 py-2.5 text-left text-sm hover:bg-raised"
+              >
+                <IconPencil className="size-4 text-ink-3" />
+                Bewerken
+              </button>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 function PositionsTable({
   portfolio,
   securities,
@@ -509,6 +570,7 @@ function PositionsTable({
   onViewTransactions: (securityId: number, name: string) => void
   onShowChart: (securityId: number, name: string, ticker: string) => void
 }) {
+  const isMobile = useIsMobile()
   if (portfolio.positions.length === 0) {
     return (
       <div className="rounded-2xl border border-dashed border-edge bg-surface p-8 text-center text-sm text-ink-2">
@@ -542,7 +604,7 @@ function PositionsTable({
           onChange={() => onSetAll(!allOn)}
           aria-label="Alles aan- of uitvinken"
           title="Alles aan- of uitvinken"
-          className="mb-2.5 size-4 accent-accent"
+          className="mb-2.5 size-4 accent-accent max-md:size-3 max-md:opacity-50"
         />
         <GainViewToggle value={gainView} onChange={onGainView} />
       </div>
@@ -567,7 +629,7 @@ function PositionsTable({
                 onDoubleClick={() => onSolo(p.security_id)}
                 aria-label={`${p.name} meetellen`}
                 title="Aanvinken = meetellen · dubbelklik = enkel dit effect"
-                className="size-4 shrink-0 accent-accent"
+                className="size-4 shrink-0 accent-accent max-md:size-3.5 max-md:opacity-60"
               />
               {p.ticker ? (
                 <button
@@ -602,23 +664,36 @@ function PositionsTable({
                 />
               </div>
               <div className="flex shrink-0 items-center gap-1">
-                <button
-                  onClick={() => onViewTransactions(p.security_id, p.name)}
-                  title="Transacties"
-                  aria-label={`Transacties van ${p.name}`}
-                  className="rounded-md p-1.5 text-ink-3 transition-colors hover:bg-raised hover:text-ink-2 pointer-coarse:p-2.5"
-                >
-                  <IconReceipt className="size-4" />
-                </button>
-                {byId.has(p.security_id) && (
-                  <button
-                    onClick={() => onEdit(byId.get(p.security_id) as Security)}
-                    title="Bewerken"
-                    aria-label={`${p.name} bewerken`}
-                    className="rounded-md p-1.5 text-ink-3 transition-colors hover:bg-raised hover:text-ink-2 pointer-coarse:p-2.5"
-                  >
-                    <IconPencil className="size-4" />
-                  </button>
+                {isMobile ? (
+                  <PositionActionsMenu
+                    onTransactions={() => onViewTransactions(p.security_id, p.name)}
+                    onEdit={
+                      byId.has(p.security_id)
+                        ? () => onEdit(byId.get(p.security_id) as Security)
+                        : undefined
+                    }
+                  />
+                ) : (
+                  <>
+                    <button
+                      onClick={() => onViewTransactions(p.security_id, p.name)}
+                      title="Transacties"
+                      aria-label={`Transacties van ${p.name}`}
+                      className="rounded-md p-1.5 text-ink-3 transition-colors hover:bg-raised hover:text-ink-2"
+                    >
+                      <IconReceipt className="size-4" />
+                    </button>
+                    {byId.has(p.security_id) && (
+                      <button
+                        onClick={() => onEdit(byId.get(p.security_id) as Security)}
+                        title="Bewerken"
+                        aria-label={`${p.name} bewerken`}
+                        className="rounded-md p-1.5 text-ink-3 transition-colors hover:bg-raised hover:text-ink-2"
+                      >
+                        <IconPencil className="size-4" />
+                      </button>
+                    )}
+                  </>
                 )}
               </div>
             </li>
@@ -1379,11 +1454,11 @@ function EntrySection({
   return (
     <details className="rounded-2xl border border-edge bg-surface">
       <summary className="cursor-pointer px-5 py-3 text-sm font-medium text-ink-2">
-        Effect toevoegen / transactie loggen / koers invoeren
+        Transactie loggen / effect toevoegen / koers invoeren
       </summary>
       <section className="grid gap-4 border-t border-line p-5 lg:grid-cols-3">
-        <SecurityForm contextId={contextId} onSaved={onChanged} />
         <TransactionForm securities={securities} onSaved={onChanged} />
+        <SecurityForm contextId={contextId} onSaved={onChanged} />
         <PriceForm securities={securities} onSaved={onChanged} />
       </section>
     </details>

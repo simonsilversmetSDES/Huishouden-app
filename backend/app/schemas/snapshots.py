@@ -80,6 +80,7 @@ class NetWorthContextTotal(BaseModel):
     context_id: int
     name: str
     total_cents: int
+    woning_cents: int  # aandeel woning in het totaal, voor de "zonder woning"-toggle
 
 
 class NetWorthSummaryOut(BaseModel):

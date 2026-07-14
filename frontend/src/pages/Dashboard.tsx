@@ -119,8 +119,8 @@ function DashboardBody({ data }: { data: DashboardData }) {
 
   return (
     <div className="space-y-4">
-      {/* TBA + type-tegels */}
-      <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      {/* TBA + type-tegels — op mobiel verborgen (te veel schermruimte). */}
+      <section className="grid gap-4 max-md:hidden sm:grid-cols-2 lg:grid-cols-4">
         <div className="rounded-2xl border border-edge bg-surface p-5">
           <p className="text-sm text-ink-3">Te verdelen</p>
           <p className="mt-1 text-3xl font-semibold tracking-tight">{formatCents(tba)}</p>
@@ -166,10 +166,14 @@ function DashboardBody({ data }: { data: DashboardData }) {
 
       {hasAnything ? (
         <>
-          {/* Grafieken zoals in de Excel */}
+          {/* Grafieken zoals in de Excel. Op mobiel eerst de drie taarten, dan de
+              staafgrafiek (order-last); op desktop houdt de bron-volgorde de staaf
+              rechtsboven. */}
           <section className="grid gap-4 lg:grid-cols-2">
             <DonutCard title="Inkomen per categorie" kind="income" rows={donutRows('Inkomen')} />
-            <TrackedVsBudget months={data.months} selectedMonth={data.month} />
+            <div className="max-md:order-last">
+              <TrackedVsBudget months={data.months} selectedMonth={data.month} />
+            </div>
             <DonutCard
               title="Uitgaven per categorie"
               kind="expense"

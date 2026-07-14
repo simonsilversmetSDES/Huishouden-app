@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { api, ApiError } from '../api/client'
 import type {
   Category,
@@ -10,6 +10,7 @@ import type {
   RulePayload,
 } from '../api/types'
 import CategoryPicker from '../components/CategoryPicker'
+import { IconPlus } from '../components/icons'
 import { FIELD_LABEL, MATCH_FIELDS, MATCH_TYPES, TYPE_LABEL } from '../lib/rules'
 import { useIsMobile } from '../lib/useMediaQuery'
 import { useAppState } from '../state/AppState'
@@ -23,11 +24,11 @@ export default function Rules() {
   const [rules, setRules] = useState<Rule[] | null>(null)
   const [categories, setCategories] = useState<Category[]>([])
   const [editing, setEditing] = useState<Rule | null>(null)
+  const [formOpen, setFormOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [applyMsg, setApplyMsg] = useState<string | null>(null)
   const [applying, setApplying] = useState(false)
   const [togglingId, setTogglingId] = useState<number | null>(null)
-  const formRef = useRef<HTMLElement>(null)
 
   useEffect(() => {
     if (contextId === null) return
@@ -48,9 +49,21 @@ export default function Rules() {
 
   if (contextId === null) return null
 
-  function startEdit(rule: Rule) {
+  // Bewerken en toevoegen in een popup: klik op een regel opent de bewerk-modal;
+  // het plusje bovenaan opent de toevoeg-modal.
+  function openEdit(rule: Rule) {
     setEditing(rule)
-    formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    setFormOpen(true)
+  }
+
+  function openAdd() {
+    setEditing(null)
+    setFormOpen(true)
+  }
+
+  function closeForm() {
+    setFormOpen(false)
+    setEditing(null)
   }
 
   async function remove(rule: Rule) {
@@ -59,7 +72,7 @@ export default function Rules() {
     }
     try {
       await api<void>(`/api/rules/${rule.id}`, { method: 'DELETE' })
-      if (editing?.id === rule.id) setEditing(null)
+      if (editing?.id === rule.id) closeForm()
       load()
     } catch {
       setError('Verwijderen mislukt — probeer opnieuw')
@@ -117,6 +130,15 @@ export default function Rules() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
         <h1 className="text-lg font-semibold">Categorisatieregels</h1>
+        <button
+          onClick={openAdd}
+          aria-label="Regel toevoegen"
+          title="Regel toevoegen"
+          className="flex items-center gap-1.5 rounded-lg bg-accent px-2.5 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent/85"
+        >
+          <IconPlus className="size-4" />
+          <span className="max-sm:sr-only">Toevoegen</span>
+        </button>
         <div className="ml-auto flex items-center gap-3">
           {applyMsg && <span className="text-sm text-ink-3">{applyMsg}</span>}
           <button
@@ -129,18 +151,19 @@ export default function Rules() {
         </div>
       </div>
 
-      <RuleForm
-        ref={formRef}
-        contextId={contextId}
-        contexts={contexts}
-        categories={categories}
-        editing={editing}
-        onCancelEdit={() => setEditing(null)}
-        onSaved={() => {
-          setEditing(null)
-          load()
-        }}
-      />
+      {formOpen && (
+        <RuleForm
+          contextId={contextId}
+          contexts={contexts}
+          categories={categories}
+          editing={editing}
+          onClose={closeForm}
+          onSaved={() => {
+            load()
+            closeForm()
+          }}
+        />
+      )}
 
       {error && (
         <div className="rounded-2xl border border-edge bg-surface p-6 text-sm text-ink-2">
@@ -165,7 +188,7 @@ export default function Rules() {
               contexts={contexts}
               togglingId={togglingId}
               onToggleContext={(rule, ctxId) => void toggleContext(rule, ctxId)}
-              onEdit={startEdit}
+              onEdit={openEdit}
               onDelete={remove}
             />
           ) : (
@@ -174,7 +197,7 @@ export default function Rules() {
               contexts={contexts}
               togglingId={togglingId}
               onToggleContext={(rule, ctxId) => void toggleContext(rule, ctxId)}
-              onEdit={startEdit}
+              onEdit={openEdit}
               onDelete={remove}
             />
           )}
@@ -185,20 +208,18 @@ export default function Rules() {
 }
 
 function RuleForm({
-  ref,
   contextId,
   contexts,
   categories,
   editing,
-  onCancelEdit,
+  onClose,
   onSaved,
 }: {
-  ref: React.RefObject<HTMLElement | null>
   contextId: number
   contexts: Context[]
   categories: Category[]
   editing: Rule | null
-  onCancelEdit: () => void
+  onClose: () => void
   onSaved: () => void
 }) {
   const [matchField, setMatchField] = useState<MatchField>('counterparty_name')
@@ -277,18 +298,23 @@ function RuleForm({
     }
   }
 
-  function cancelEdit() {
-    setMatchValue('')
-    setCategoryId('')
-    setSaveError(null)
-    onCancelEdit()
-  }
-
   return (
-    <section ref={ref} className="rounded-2xl border border-edge bg-surface p-5">
-      <h2 className="text-sm font-medium">{editing ? 'Regel bewerken' : 'Regel toevoegen'}</h2>
-      <form onSubmit={submit} className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
-        <label className="block lg:col-span-1">
+    <div
+      className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/30 p-4 pt-12 max-md:items-end max-md:p-0"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-xl rounded-2xl border border-edge bg-surface p-5 shadow-lg max-md:max-h-[92dvh] max-md:overflow-y-auto max-md:rounded-b-none max-md:pb-[calc(1.25rem+env(safe-area-inset-bottom))]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-baseline justify-between">
+          <h2 className="text-sm font-medium">{editing ? 'Regel bewerken' : 'Regel toevoegen'}</h2>
+          <button onClick={onClose} className="text-sm text-ink-3 hover:text-ink-2">
+            Sluiten
+          </button>
+        </div>
+        <form onSubmit={submit} className="mt-3 grid gap-3 sm:grid-cols-2">
+        <label className="block">
           <span className="mb-1 block text-xs uppercase tracking-wide text-ink-3">Veld</span>
           <select
             value={matchField}
@@ -316,7 +342,7 @@ function RuleForm({
             ))}
           </select>
         </label>
-        <label className="block lg:col-span-2">
+        <label className="block sm:col-span-2">
           <span className="mb-1 block text-xs uppercase tracking-wide text-ink-3">Waarde</span>
           <input
             type="text"
@@ -348,7 +374,7 @@ function RuleForm({
           />
         </label>
         {contexts.length > 1 && (
-          <div className="sm:col-span-2 lg:col-span-6">
+          <div className="sm:col-span-2">
             <span className="mb-1 block text-xs uppercase tracking-wide text-ink-3">Geldt voor</span>
             <div className="flex flex-wrap gap-4">
               {contexts.map((c) => (
@@ -365,7 +391,7 @@ function RuleForm({
             </div>
           </div>
         )}
-        <div className="flex items-center gap-3 sm:col-span-2 lg:col-span-6">
+        <div className="flex items-center gap-3 sm:col-span-2">
           <button
             type="submit"
             disabled={saving}
@@ -373,22 +399,21 @@ function RuleForm({
           >
             {editing ? 'Opslaan' : 'Toevoegen'}
           </button>
-          {editing && (
-            <button
-              type="button"
-              onClick={cancelEdit}
-              className="rounded-lg border border-edge bg-surface px-3 py-2 text-sm text-ink-2 hover:bg-raised"
-            >
-              Annuleren
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg border border-edge bg-surface px-3 py-2 text-sm text-ink-2 hover:bg-raised"
+          >
+            Annuleren
+          </button>
           {saveError && <p className="text-sm text-crit">{saveError}</p>}
         </div>
-      </form>
-      <p className="mt-3 text-xs text-ink-3">
-        Regels worden op prioriteit geëvalueerd (laagste eerst); de eerste match wint.
-      </p>
-    </section>
+        </form>
+        <p className="mt-3 text-xs text-ink-3">
+          Regels worden op prioriteit geëvalueerd (laagste eerst); de eerste match wint.
+        </p>
+      </div>
+    </div>
   )
 }
 

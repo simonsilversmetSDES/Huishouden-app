@@ -138,6 +138,7 @@ export interface NetWorthContextTotal {
   context_id: number
   name: string
   total_cents: number
+  woning_cents: number
 }
 
 export interface NetWorthSummary {

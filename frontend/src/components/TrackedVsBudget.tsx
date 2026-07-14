@@ -9,6 +9,7 @@ import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis
 import type { CategoryType, MonthTotals } from '../api/types'
 import { RAMPS } from '../lib/chartColors'
 import { formatCents, MAAND_KORT } from '../lib/format'
+import { useCoarsePointer } from '../lib/useMediaQuery'
 
 type RampKey = keyof typeof RAMPS
 
@@ -32,6 +33,9 @@ interface TrackedVsBudgetProps {
 }
 
 export default function TrackedVsBudget({ months, selectedMonth }: TrackedVsBudgetProps) {
+  // Op mobiel de hover-tooltip helemaal verbergen: bij scrollen bleef ze anders
+  // in beeld staan. Op pc blijft hoveren gewoon werken.
+  const coarse = useCoarsePointer()
   const [visible, setVisible] = useState<Record<CategoryType, boolean>>({
     Inkomen: true,
     Uitgaven: true,
@@ -96,6 +100,7 @@ export default function TrackedVsBudget({ months, selectedMonth }: TrackedVsBudg
               tickFormatter={(cents: number) => euroInt.format(cents / 100)}
             />
             <Tooltip
+              active={coarse ? false : undefined}
               cursor={{ fill: 'rgb(11 11 11 / 0.04)' }}
               formatter={(value, name) => [formatCents(value as number), name]}
               contentStyle={{

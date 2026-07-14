@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useState, type FormEvent } from 'react'
 import { api, ApiError } from '../api/client'
 import type {
   Category,
@@ -11,7 +11,7 @@ import type {
 } from '../api/types'
 import CategoryPicker from '../components/CategoryPicker'
 import PeriodPicker, { currentPeriod, type Period } from '../components/PeriodPicker'
-import { IconTrash } from '../components/icons'
+import { IconPlus, IconTrash } from '../components/icons'
 import { formatCentsPlain, formatDate, formatMonthYear, parseEuroToCents } from '../lib/format'
 import { useIsMobile } from '../lib/useMediaQuery'
 import { useAppState } from '../state/AppState'
@@ -50,9 +50,9 @@ export default function Transactions() {
   const [categories, setCategories] = useState<Category[]>([])
   const [transactions, setTransactions] = useState<Transaction[] | null>(null)
   const [editing, setEditing] = useState<Transaction | null>(null)
+  const [formOpen, setFormOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [correction, setCorrection] = useState<CorrectionSuggestion | null>(null)
-  const formRef = useRef<HTMLElement>(null)
 
   useEffect(() => {
     if (contextId === null) return
@@ -80,9 +80,21 @@ export default function Transactions() {
 
   const filterCategories = categories.filter((c) => !typeFilter || c.type === typeFilter)
 
-  function startEdit(tx: Transaction) {
+  // Bewerken en toevoegen gebeuren nu in een popup (spec-wens): klik op een
+  // transactie opent de bewerk-modal; het plusje bovenaan opent de toevoeg-modal.
+  function openEdit(tx: Transaction) {
     setEditing(tx)
-    formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    setFormOpen(true)
+  }
+
+  function openAdd() {
+    setEditing(null)
+    setFormOpen(true)
+  }
+
+  function closeForm() {
+    setFormOpen(false)
+    setEditing(null)
   }
 
   async function createRuleFromCorrection() {
@@ -118,7 +130,7 @@ export default function Transactions() {
     }
     try {
       await api<void>(`/api/transactions/${tx.id}`, { method: 'DELETE' })
-      if (editing?.id === tx.id) setEditing(null)
+      if (editing?.id === tx.id) closeForm()
       load()
     } catch {
       setError('Verwijderen mislukt — probeer opnieuw')
@@ -136,18 +148,20 @@ export default function Transactions() {
         </div>
       </div>
 
-      <TransactionForm
-        ref={formRef}
-        contextId={contextId}
-        categories={categories}
-        editing={editing}
-        onCancelEdit={() => setEditing(null)}
-        onSaved={(suggestion) => {
-          setEditing(null)
-          setCorrection(suggestion ?? null)
-          load()
-        }}
-      />
+      {formOpen && (
+        <TransactionForm
+          contextId={contextId}
+          categories={categories}
+          editing={editing}
+          onClose={closeForm}
+          onSaved={(suggestion, wasEditing) => {
+            setCorrection(suggestion ?? null)
+            load()
+            // Bewerken sluit de popup; toevoegen laat ze open voor snelle reeksinvoer.
+            if (wasEditing) closeForm()
+          }}
+        />
+      )}
 
       {correction && (
         <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-accent/40 bg-surface p-4 text-sm">
@@ -185,6 +199,15 @@ export default function Transactions() {
         <section className="overflow-x-auto rounded-2xl border border-edge bg-surface">
           <div className="flex flex-wrap items-center gap-2 border-b border-line px-5 py-3">
             <h2 className="text-sm font-medium">Transacties</h2>
+            <button
+              onClick={openAdd}
+              aria-label="Transactie toevoegen"
+              title="Transactie toevoegen"
+              className="flex items-center gap-1.5 rounded-lg bg-accent px-2.5 py-1.5 text-sm font-medium text-white transition-colors hover:bg-accent/85"
+            >
+              <IconPlus className="size-4" />
+              <span className="max-sm:sr-only">Toevoegen</span>
+            </button>
             <div className="flex w-full flex-col gap-2 sm:ml-auto sm:w-auto sm:flex-row sm:items-center">
               <select
                 value={typeFilter}
@@ -227,9 +250,9 @@ export default function Transactions() {
               Nog geen transacties in deze periode.
             </p>
           ) : isMobile ? (
-            <TransactionCards transactions={transactions} onEdit={startEdit} onDelete={remove} />
+            <TransactionCards transactions={transactions} onEdit={openEdit} onDelete={remove} />
           ) : (
-            <TransactionTable transactions={transactions} onEdit={startEdit} onDelete={remove} />
+            <TransactionTable transactions={transactions} onEdit={openEdit} onDelete={remove} />
           )}
         </section>
       )}
@@ -237,20 +260,21 @@ export default function Transactions() {
   )
 }
 
+// Popup voor toevoegen én bewerken: hergebruikt hetzelfde formulier. Bij bewerken
+// sluit de aanroeper de modal na opslaan; bij toevoegen blijft ze open (velden
+// leeg, datum blijft) voor snelle reeksinvoer.
 function TransactionForm({
-  ref,
   contextId,
   categories,
   editing,
-  onCancelEdit,
+  onClose,
   onSaved,
 }: {
-  ref: React.RefObject<HTMLElement | null>
   contextId: number
   categories: Category[]
   editing: Transaction | null
-  onCancelEdit: () => void
-  onSaved: (correction?: CorrectionSuggestion) => void
+  onClose: () => void
+  onSaved: (correction: CorrectionSuggestion | undefined, wasEditing: boolean) => void
 }) {
   const [date, setDate] = useState(todayIso)
   const [type, setType] = useState<CategoryType>('Uitgaven')
@@ -340,7 +364,7 @@ function TransactionForm({
       setAmountText('')
       setDescription('')
       setEffectiveDate('')
-      onSaved(suggestion)
+      onSaved(suggestion, editing !== null)
     } catch {
       setSaveError('Opslaan mislukt — probeer opnieuw')
     } finally {
@@ -348,21 +372,24 @@ function TransactionForm({
     }
   }
 
-  function cancelEdit() {
-    setAmountText('')
-    setDescription('')
-    setEffectiveDate('')
-    setAmountInvalid(false)
-    setSaveError(null)
-    onCancelEdit()
-  }
-
   return (
-    <section ref={ref} className="rounded-2xl border border-edge bg-surface p-5">
-      <h2 className="text-sm font-medium">
-        {editing ? 'Transactie bewerken' : 'Transactie toevoegen'}
-      </h2>
-      <form onSubmit={submit} className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
+    <div
+      className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-black/30 p-4 pt-12 max-md:items-end max-md:p-0"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-xl rounded-2xl border border-edge bg-surface p-5 shadow-lg max-md:max-h-[92dvh] max-md:overflow-y-auto max-md:rounded-b-none max-md:pb-[calc(1.25rem+env(safe-area-inset-bottom))]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-baseline justify-between">
+          <h2 className="text-sm font-medium">
+            {editing ? 'Transactie bewerken' : 'Transactie toevoegen'}
+          </h2>
+          <button onClick={onClose} className="text-sm text-ink-3 hover:text-ink-2">
+            Sluiten
+          </button>
+        </div>
+        <form onSubmit={submit} className="mt-3 grid gap-3 sm:grid-cols-2">
         <label className="block">
           <span className="mb-1 block text-xs uppercase tracking-wide text-ink-3">Datum</span>
           <input
@@ -439,7 +466,7 @@ function TransactionForm({
             className={inputClass}
           />
         </label>
-        <div className="flex items-center gap-3 sm:col-span-2 lg:col-span-6">
+        <div className="flex items-center gap-3 sm:col-span-2">
           <button
             type="submit"
             disabled={saving}
@@ -447,19 +474,18 @@ function TransactionForm({
           >
             {editing ? 'Opslaan' : 'Toevoegen'}
           </button>
-          {editing && (
-            <button
-              type="button"
-              onClick={cancelEdit}
-              className="rounded-lg border border-edge bg-surface px-3 py-2 text-sm text-ink-2 hover:bg-raised"
-            >
-              Annuleren
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg border border-edge bg-surface px-3 py-2 text-sm text-ink-2 hover:bg-raised"
+          >
+            Annuleren
+          </button>
           {saveError && <p className="text-sm text-crit">{saveError}</p>}
         </div>
-      </form>
-    </section>
+        </form>
+      </div>
+    </div>
   )
 }
 

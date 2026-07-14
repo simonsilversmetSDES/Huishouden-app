@@ -6,6 +6,7 @@ import { useState } from 'react'
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts'
 import { OTHER_HEX, RAMPS } from '../lib/chartColors'
 import { formatCents } from '../lib/format'
+import { useChartPress } from '../lib/useChartPress'
 
 const TOP_N = 5
 const pctFmt = new Intl.NumberFormat('nl-BE', { maximumFractionDigits: 1 })
@@ -39,6 +40,9 @@ export default function DonutCard({
   ringClass = 'h-36 w-36',
 }: DonutCardProps) {
   const [hidden, setHidden] = useState<Set<string>>(new Set())
+  // Op mobiel toont de ring z'n tooltip enkel zolang je erop duwt (press-to-show);
+  // de legende hieronder heeft alle bedragen/percentages toch al staan.
+  const { tooltipActive, pressHandlers } = useChartPress()
   const sorted = rows.filter((r) => r.cents > 0).sort((a, b) => b.cents - a.cents)
   const top = sorted.slice(0, maxSegments)
   const restCents = sorted.slice(maxSegments).reduce((sum, r) => sum + r.cents, 0)
@@ -75,7 +79,7 @@ export default function DonutCard({
         <div className="mt-3 flex flex-1 items-center gap-5 max-md:flex-col max-md:gap-4">
           <div className={`${ringClass} shrink-0`}>
             <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
+              <PieChart {...pressHandlers}>
                 <Pie
                   data={shown}
                   dataKey="cents"
@@ -91,6 +95,7 @@ export default function DonutCard({
                   ))}
                 </Pie>
                 <Tooltip
+                  active={tooltipActive}
                   formatter={(value) => formatCents(value as number)}
                   contentStyle={{
                     backgroundColor: '#ffffff',

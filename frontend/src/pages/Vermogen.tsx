@@ -25,6 +25,7 @@ import type {
 } from '../api/types'
 import DonutCard from '../components/DonutCard'
 import { ASSET_CLASS_COLORS, ASSET_CLASS_LABEL, seriesColor } from '../lib/chartColors'
+import { useChartPress } from '../lib/useChartPress'
 import { formatCents, formatCentsPlain, MAAND_KORT, parseEuroToCents } from '../lib/format'
 import { useIsMobile } from '../lib/useMediaQuery'
 import { useAppState } from '../state/AppState'
@@ -628,7 +629,12 @@ function NetWorthSection({ contextId }: { contextId: number }) {
 
           {rows.length > 0 && (
             <>
-              <VermogenDonuts selectedIds={selectedIds} activaRows={activaRows} investRows={investRows} />
+              <VermogenDonuts
+                selectedIds={selectedIds}
+                excludeWoning={excludeWoning}
+                activaRows={activaRows}
+                investRows={investRows}
+              />
               <NetWorthEvolution
                 data={data}
                 excludeWoning={excludeWoning}
@@ -649,10 +655,12 @@ type SimpleRow = { name: string; cents: number; color?: string }
  * staat al in de Beleggingen-tab. Contant wordt per geselecteerde entiteit opgehaald. */
 function VermogenDonuts({
   selectedIds,
+  excludeWoning,
   activaRows,
   investRows,
 }: {
   selectedIds: number[]
+  excludeWoning: boolean
   activaRows: SimpleRow[]
   investRows: SimpleRow[]
 }) {
@@ -695,11 +703,14 @@ function VermogenDonuts({
     }
   }, [selectedIds])
 
-  const entityRows = (summary?.contexts ?? []).map((c) => ({ name: c.name, cents: c.total_cents }))
-  const householdTotal = summary?.total_cents ?? 0
+  // De "zonder woning"-toggle geldt ook hier: trek per entiteit de woning-waarde af.
+  const entityCents = (c: NetWorthSummary['contexts'][number]) =>
+    c.total_cents - (excludeWoning ? c.woning_cents : 0)
+  const entityRows = (summary?.contexts ?? []).map((c) => ({ name: c.name, cents: entityCents(c) }))
+  const householdTotal = (summary?.contexts ?? []).reduce((sum, c) => sum + entityCents(c), 0)
   const selectedTotal = (summary?.contexts ?? [])
     .filter((c) => selectedIds.includes(c.context_id))
-    .reduce((sum, c) => sum + c.total_cents, 0)
+    .reduce((sum, c) => sum + entityCents(c), 0)
   const sharePct =
     householdTotal > 0
       ? `selectie = ${pctFmt.format((selectedTotal / householdTotal) * 100)} % van het gezin`
@@ -736,6 +747,8 @@ function NetWorthEvolution({
   const [hidden, setHidden] = useState<Set<AssetClass>>(new Set())
   const [fromYear, setFromYear] = useState<number | null>(null)
   const [toYear, setToYear] = useState<number | null>(null)
+  // Op mobiel: tooltip enkel tonen zolang je op de grafiek duwt.
+  const { tooltipActive, pressHandlers } = useChartPress()
 
   // Forecast ("Status balans" op de Budget-tab), als gestippelde totaallijn.
   const [showForecast, setShowForecast] = useState(false)
@@ -884,7 +897,7 @@ function NetWorthEvolution({
 
       <div className="mt-4 h-56">
         <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={chartData}>
+          <ComposedChart data={chartData} {...pressHandlers}>
             <CartesianGrid vertical={false} stroke="#e1e0d9" />
             <XAxis
               dataKey="label"
@@ -900,6 +913,7 @@ function NetWorthEvolution({
               tickFormatter={(cents: number) => euroInt.format(cents / 100)}
             />
             <Tooltip
+              active={tooltipActive}
               formatter={(value, name) => [
                 formatCents(value as number),
                 name === 'forecast'

@@ -117,3 +117,13 @@ export const IconTrash = svg(
     <path d="M10 10.5v6M14 10.5v6" />
   </>,
 )
+
+export const IconPlus = svg(<path d="M12 5v14M5 12h14" />)
+
+export const IconDots = svg(
+  <>
+    <circle cx="5" cy="12" r="1.1" />
+    <circle cx="12" cy="12" r="1.1" />
+    <circle cx="19" cy="12" r="1.1" />
+  </>,
+)

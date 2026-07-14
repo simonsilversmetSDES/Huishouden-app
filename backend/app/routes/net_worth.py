@@ -62,12 +62,20 @@ def net_worth_summary(
 ) -> NetWorthSummaryOut:
     """Laatste nettowaarde per context + het gezinstotaal (voor de 't.o.v. totaal'-gauge)."""
     contexts = db.scalars(select(Context).order_by(Context.id)).all()
-    totals = [
-        NetWorthContextTotal(
-            context_id=c.id, name=c.name, total_cents=build_net_worth(db, c).latest_total_cents
+    totals = []
+    for c in contexts:
+        nw = build_net_worth(db, c)
+        woning_cents = sum(
+            a.value_cents for a in nw.latest_breakdown if a.asset_class == "woning"
         )
-        for c in contexts
-    ]
+        totals.append(
+            NetWorthContextTotal(
+                context_id=c.id,
+                name=c.name,
+                total_cents=nw.latest_total_cents,
+                woning_cents=woning_cents,
+            )
+        )
     return NetWorthSummaryOut(contexts=totals, total_cents=sum(t.total_cents for t in totals))
 
 

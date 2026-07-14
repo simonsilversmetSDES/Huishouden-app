@@ -245,6 +245,25 @@ class TestSummary:
         assert by_name["Simon"] == 250000
         assert out["total_cents"] == 350000
 
+    def test_woning_cents_per_context(self, logged_in, seeded_db: Session) -> None:
+        # Voor de "zonder woning"-toggle op de entiteit-donut: het woning-aandeel
+        # wordt per context meegegeven zodat de frontend het kan aftrekken.
+        gem = _context(seeded_db, "Gemeenschappelijk")
+        simon = _context(seeded_db, "Simon")
+        _nw(seeded_db, gem, date(2026, 6, 1), AssetClass.CONTANT, "1000.00")
+        _nw(seeded_db, gem, date(2026, 6, 1), AssetClass.WONING, "3000.00")
+        _nw(seeded_db, simon, date(2026, 6, 1), AssetClass.AANDELEN, "2500.00")
+        seeded_db.commit()
+
+        out = logged_in.get("/api/net-worth/summary").json()
+        by_name = {c["name"]: c for c in out["contexts"]}
+        assert by_name["Gemeenschappelijk"]["total_cents"] == 400000
+        assert by_name["Gemeenschappelijk"]["woning_cents"] == 300000
+        assert by_name["Simon"]["woning_cents"] == 0
+        # Totaal zonder woning = total − woning, per context.
+        zonder_woning = sum(c["total_cents"] - c["woning_cents"] for c in out["contexts"])
+        assert zonder_woning == 350000
+
 
 class TestGecombineerd:
     def test_optellen_per_maand_en_klasse(self, seeded_db: Session) -> None:

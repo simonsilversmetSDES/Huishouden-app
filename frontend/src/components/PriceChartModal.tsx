@@ -13,6 +13,7 @@ import {
 } from 'recharts'
 import { api, ApiError } from '../api/client'
 import type { ChartRange, PriceHistory } from '../api/types'
+import { useChartPress } from '../lib/useChartPress'
 import { useCoarsePointer } from '../lib/useMediaQuery'
 
 // Dezelfde tijdsblokken als Yahoo Finance; het interval kiest de backend.
@@ -121,6 +122,8 @@ export default function PriceChartModal({
   // Ingezoomd venster als [start, eind]-index; null = volledige periode. Sleep-
   // selectie op de grafiek én de schuifbalk onderaan sturen dit aan.
   const coarse = useCoarsePointer()
+  // Op mobiel: tooltip enkel tonen zolang je op de grafiek duwt.
+  const { tooltipActive, pressHandlers } = useChartPress()
   const [zoom, setZoom] = useState<[number, number] | null>(null)
   const [dragStart, setDragStart] = useState<number | null>(null)
   const [dragEnd, setDragEnd] = useState<number | null>(null)
@@ -248,6 +251,7 @@ export default function PriceChartModal({
               <AreaChart
                 data={data}
                 margin={{ top: 4, right: 4, bottom: 0, left: 0 }}
+                {...pressHandlers}
                 // Sleep-zoom is muiswerk; op touch zoomen de periodeknoppen en
                 // moet slepen gewoon de pagina scrollen.
                 style={coarse ? undefined : { cursor: 'crosshair' }}
@@ -306,6 +310,7 @@ export default function PriceChartModal({
                   tickFormatter={(v: number) => priceFmt.format(v)}
                 />
                 <Tooltip
+                  active={tooltipActive}
                   cursor={{ stroke: '#898781', strokeDasharray: '4 3' }}
                   formatter={(value) => [
                     `${priceFmt.format(value as number)}${currency ? ` ${currency}` : ''}`,

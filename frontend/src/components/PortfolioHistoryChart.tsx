@@ -13,6 +13,7 @@ import {
 } from 'recharts'
 import type { PortfolioHistory } from '../api/types'
 import { MAAND_KORT, formatCents, formatCentsWhole, formatDate } from '../lib/format'
+import { useChartPress } from '../lib/useChartPress'
 import { useCoarsePointer } from '../lib/useMediaQuery'
 
 // Huisstijl-typekleuren (index.css): waarde = sparen-blauw, inleg = uitgaven-oranje
@@ -124,6 +125,8 @@ export default function PortfolioHistoryChart({
   const [range, setRange] = useState<[number, number] | null>(null)
   // Sleep-in-uitvoering op het grafiekvlak (in `i`-waarden, dus absolute indexen).
   const coarse = useCoarsePointer()
+  // Op mobiel: tooltip enkel tonen zolang je op de grafiek duwt.
+  const { tooltipActive, pressHandlers } = useChartPress()
   const [dragStart, setDragStart] = useState<number | null>(null)
   const [dragEnd, setDragEnd] = useState<number | null>(null)
 
@@ -227,6 +230,7 @@ export default function PortfolioHistoryChart({
             <ComposedChart
               data={data}
               margin={{ top: 4, right: 4, bottom: 0, left: 0 }}
+              {...pressHandlers}
               // Sleep-zoom is muiswerk; op touch moet slepen de pagina scrollen.
               style={coarse ? undefined : { cursor: 'crosshair' }}
               onMouseDown={(s) => {
@@ -284,6 +288,7 @@ export default function PortfolioHistoryChart({
                 tickFormatter={(v: number) => `€ ${formatCentsWhole(v)}`}
               />
               <Tooltip
+                active={tooltipActive}
                 cursor={{ stroke: '#898781', strokeDasharray: '4 3' }}
                 content={<HistoryTooltip />}
               />
