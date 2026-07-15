@@ -521,6 +521,7 @@ function TransactionCards({
             <span className="mt-0.5 block truncate pl-4 text-xs text-ink-3">
               {formatDate(tx.date)}
               {tx.effective_date !== tx.date && ` (telt voor ${formatDate(tx.effective_date)})`}
+              {tx.counterparty_name && ` · ${tx.counterparty_name}`}
               {tx.description && ` · ${tx.description}`}
             </span>
           </button>
@@ -547,12 +548,22 @@ function TransactionTable({
   onDelete: (tx: Transaction) => void
 }) {
   return (
-    <table className="w-full min-w-[720px] text-sm">
+    <table className="w-full table-fixed text-sm">
+      <colgroup>
+        <col className="w-[11%]" />
+        <col className="w-[10%]" />
+        <col className="w-[15%]" />
+        <col className="w-[15%]" />
+        <col className="w-[18%]" />
+        <col className="w-[11%]" />
+        <col className="w-[20%]" />
+      </colgroup>
       <thead>
         <tr className="border-b border-line text-xs text-ink-3">
           <th className="px-5 py-3 text-left font-medium">Datum</th>
           <th className="px-3 py-3 text-left font-medium">Type</th>
           <th className="px-3 py-3 text-left font-medium">Categorie</th>
+          <th className="px-3 py-3 text-left font-medium">Tegenpartij</th>
           <th className="px-3 py-3 text-left font-medium">Omschrijving</th>
           <th className="px-3 py-3 text-right font-medium">Bedrag</th>
           <th className="px-5 py-3" />
@@ -561,7 +572,7 @@ function TransactionTable({
       <tbody className="tabular-nums">
         {transactions.map((tx) => (
           <tr key={tx.id} className="border-b border-line last:border-b-0 hover:bg-raised/50">
-            <td className="whitespace-nowrap px-5 py-2">
+            <td className="px-5 py-2">
               {formatDate(tx.date)}
               {tx.effective_date !== tx.date && (
                 <span className="ml-1 text-xs text-ink-3">
@@ -569,19 +580,22 @@ function TransactionTable({
                 </span>
               )}
             </td>
-            <td className="whitespace-nowrap px-3 py-2">
+            <td className="px-3 py-2">
               <span className="flex items-center gap-2">
                 <span
                   aria-hidden
-                  className={`inline-block size-2 rounded-full ${TYPE_DOT[tx.type]}`}
+                  className={`inline-block size-2 shrink-0 rounded-full ${TYPE_DOT[tx.type]}`}
                 />
-                {tx.type}
+                <span className="truncate">{tx.type}</span>
               </span>
             </td>
-            <td className="px-3 py-2">
+            <td className="truncate px-3 py-2">
               {tx.category_name ?? <span className="text-ink-3">–</span>}
             </td>
-            <td className="max-w-64 truncate px-3 py-2 text-ink-2">{tx.description ?? ''}</td>
+            <td className="truncate px-3 py-2 text-ink-2">
+              {tx.counterparty_name ?? <span className="text-ink-3">–</span>}
+            </td>
+            <td className="truncate px-3 py-2 text-ink-2">{tx.description ?? ''}</td>
             <td className="whitespace-nowrap px-3 py-2 text-right">
               {formatCentsPlain(tx.amount_cents)}
             </td>
