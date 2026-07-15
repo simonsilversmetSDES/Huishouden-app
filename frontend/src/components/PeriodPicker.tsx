@@ -28,24 +28,41 @@ interface PeriodPickerProps {
   onChange: (period: Period) => void
 }
 
+const MONTHS = Array.from({ length: 12 }, (_, i) => i + 1)
+const monthFmt = new Intl.DateTimeFormat('nl-BE', { month: 'long' })
+
+function monthLabel(month: number): string {
+  const name = monthFmt.format(new Date(2000, month - 1, 1))
+  return name.charAt(0).toUpperCase() + name.slice(1)
+}
+
+// Maand kiezen via dropdown (12 maanden + "Volledig jaar"); de ‹ ›-pijltjes
+// verschuiven de periode één stap (maand in maand-modus, jaar in jaar-modus,
+// telkens met jaarovergang). "Volledig jaar" = de jaar-modus.
 export default function PeriodPicker({ period, onChange }: PeriodPickerProps) {
+  const stepLabel = period.mode === 'jaar' ? 'jaar' : 'maand'
   return (
     <div className="flex items-center gap-1.5">
-      <div className="flex rounded-lg border border-edge bg-surface p-0.5">
-        {(['maand', 'jaar'] as const).map((mode) => (
-          <button
-            key={mode}
-            onClick={() => onChange({ ...period, mode })}
-            className={`rounded-md px-3 py-1 text-sm capitalize transition-colors ${
-              period.mode === mode
-                ? 'bg-raised font-medium text-ink'
-                : 'text-ink-3 hover:text-ink-2'
-            }`}
-          >
-            {mode}
-          </button>
+      <select
+        aria-label="Maand"
+        value={period.mode === 'jaar' ? 'jaar' : String(period.month)}
+        onChange={(e) => {
+          const value = e.target.value
+          onChange(
+            value === 'jaar'
+              ? { ...period, mode: 'jaar' }
+              : { ...period, mode: 'maand', month: Number(value) },
+          )
+        }}
+        className="rounded-lg border border-edge bg-surface px-3 py-1.5 text-sm text-ink-2 focus:border-accent focus:outline-none"
+      >
+        {MONTHS.map((m) => (
+          <option key={m} value={m}>
+            {monthLabel(m)}
+          </option>
         ))}
-      </div>
+        <option value="jaar">Volledig jaar</option>
+      </select>
       {!isCurrentPeriod(period) && (
         <button
           onClick={() => onChange(currentPeriod(period.mode))}
@@ -54,20 +71,25 @@ export default function PeriodPicker({ period, onChange }: PeriodPickerProps) {
           Vandaag
         </button>
       )}
-      <button
-        onClick={() => onChange(shiftPeriod(period, -1))}
-        aria-label={period.mode === 'jaar' ? 'Vorig jaar' : 'Vorige maand'}
-        className="rounded-lg border border-edge bg-surface px-3 py-1.5 text-sm text-ink-2 hover:bg-raised"
-      >
-        ‹
-      </button>
-      <button
-        onClick={() => onChange(shiftPeriod(period, 1))}
-        aria-label={period.mode === 'jaar' ? 'Volgend jaar' : 'Volgende maand'}
-        className="rounded-lg border border-edge bg-surface px-3 py-1.5 text-sm text-ink-2 hover:bg-raised"
-      >
-        ›
-      </button>
+      <div className="flex items-center gap-1">
+        <button
+          onClick={() => onChange(shiftPeriod(period, -1))}
+          aria-label={`Vorige ${stepLabel}`}
+          className="rounded-lg border border-edge bg-surface px-3 py-1.5 text-sm text-ink-2 hover:bg-raised"
+        >
+          ‹
+        </button>
+        <span className="min-w-[4ch] text-center text-sm font-medium tabular-nums text-ink-2">
+          {period.year}
+        </span>
+        <button
+          onClick={() => onChange(shiftPeriod(period, 1))}
+          aria-label={`Volgende ${stepLabel}`}
+          className="rounded-lg border border-edge bg-surface px-3 py-1.5 text-sm text-ink-2 hover:bg-raised"
+        >
+          ›
+        </button>
+      </div>
     </div>
   )
 }
