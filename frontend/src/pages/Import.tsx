@@ -15,11 +15,12 @@ import type {
   RulePayload,
 } from '../api/types'
 import CategoryPicker from '../components/CategoryPicker'
+import { IconTrash } from '../components/icons'
 import { formatCentsPlain, formatDate, parseEuroToCents } from '../lib/format'
 import { FIELD_LABEL, MATCH_FIELDS, MATCH_TYPES, ruleMatches, TYPE_LABEL } from '../lib/rules'
 
 const selectClass =
-  'w-full rounded-lg border border-edge bg-page px-2 py-1.5 text-sm focus:border-accent focus:outline-none'
+  'w-full min-w-0 rounded-lg border border-edge bg-page px-2 py-1.5 text-sm focus:border-accent focus:outline-none'
 const inputClass =
   'w-full rounded-lg border border-edge bg-page px-3 py-2 text-sm focus:border-accent focus:outline-none'
 
@@ -38,6 +39,7 @@ interface EditRow {
   amountText: string // wat in het invoerveld staat
   amountInvalid: boolean
   description: string
+  effectiveDate: string // ISO; budgetmaand, aanpasbaar vóór opslaan
 }
 
 function signType(amountCents: number): CategoryType {
@@ -55,6 +57,7 @@ function toEditRow(row: PreviewRow): EditRow {
     amountText: formatCentsPlain(row.amount_cents),
     amountInvalid: false,
     description: row.description ?? '',
+    effectiveDate: row.effective_date,
   }
 }
 
@@ -161,6 +164,20 @@ export default function Import() {
     setRows((prev) => prev.map((row, i) => (i === index ? { ...row, description: text } : row)))
   }
 
+  function changeEffectiveDate(index: number, date: string) {
+    // Leeg veld = terugvallen op de originele datum uit de CSV.
+    setRows((prev) =>
+      prev.map((row, i) =>
+        i === index ? { ...row, effectiveDate: date || row.source.date } : row,
+      ),
+    )
+  }
+
+  // Een rij uit het voorbeeld weghalen: ze wordt niet geïmporteerd.
+  function removeRow(index: number) {
+    setRows((prev) => prev.filter((_, i) => i !== index))
+  }
+
   // "＋ regel" op een rij: de editor voorinvullen en ernaartoe scrollen.
   function prefillRule(row: EditRow) {
     const hasName = !!row.source.counterparty_name
@@ -240,7 +257,7 @@ export default function Import() {
       .filter((row) => !row.source.duplicate)
       .map((row) => ({
         date: row.source.date,
-        effective_date: row.source.effective_date,
+        effective_date: row.effectiveDate,
         amount_cents: row.amountCents,
         type: row.type,
         counterparty_name: row.source.counterparty_name,
@@ -343,7 +360,9 @@ export default function Import() {
                   onChangeCategory={changeCategory}
                   onChangeAmount={changeAmount}
                   onChangeDescription={changeDescription}
+                  onChangeEffectiveDate={changeEffectiveDate}
                   onAddRule={prefillRule}
+                  onRemove={removeRow}
                 />
                 <div className="flex items-center gap-3 border-t border-line px-5 py-3">
                   <button
@@ -521,24 +540,39 @@ function PreviewTable({
   onChangeCategory,
   onChangeAmount,
   onChangeDescription,
+  onChangeEffectiveDate,
   onAddRule,
+  onRemove,
 }: {
   rows: EditRow[]
   categories: Category[]
   onChangeCategory: (index: number, categoryId: number | null) => void
   onChangeAmount: (index: number, text: string) => void
   onChangeDescription: (index: number, text: string) => void
+  onChangeEffectiveDate: (index: number, date: string) => void
   onAddRule: (row: EditRow) => void
+  onRemove: (index: number) => void
 }) {
   return (
-    <table className="w-full min-w-[1000px] text-sm">
+    <table className="w-full table-fixed text-sm">
+      <colgroup>
+        <col className="w-[11%]" />
+        <col className="w-[13%]" />
+        <col className="w-[13%]" />
+        <col className="w-[17%]" />
+        <col className="w-[10%]" />
+        <col className="w-[30%]" />
+        <col className="w-[6%]" />
+      </colgroup>
       <thead>
         <tr className="border-b border-line text-xs text-ink-3">
-          <th className="sticky-col px-5 py-3 text-left font-medium max-md:px-3">Datum</th>
+          <th className="sticky-col px-3 py-3 text-left font-medium">Datum</th>
+          <th className="px-3 py-3 text-left font-medium">Budgetmaand</th>
           <th className="px-3 py-3 text-left font-medium">Tegenpartij</th>
           <th className="px-3 py-3 text-left font-medium">Omschrijving</th>
           <th className="px-3 py-3 text-right font-medium">Bedrag</th>
           <th className="px-3 py-3 text-left font-medium">Categorie</th>
+          <th className="px-3 py-3" />
         </tr>
       </thead>
       <tbody className="tabular-nums">
@@ -553,24 +587,37 @@ function PreviewTable({
                 dupe ? 'text-ink-3' : 'hover:bg-raised/50'
               }`}
             >
-              <td className="sticky-col whitespace-nowrap px-5 py-2 max-md:px-3">
+              <td className="sticky-col whitespace-nowrap px-3 py-2">
                 {formatDate(row.source.date)}
               </td>
-              <td className="max-w-48 truncate px-3 py-2">
+              <td className="whitespace-nowrap px-3 py-2">
+                {dupe ? (
+                  formatDate(row.effectiveDate)
+                ) : (
+                  <input
+                    type="date"
+                    value={row.effectiveDate}
+                    onChange={(e) => onChangeEffectiveDate(index, e.target.value)}
+                    aria-label="Budgetmaand"
+                    className="w-full min-w-[7.5rem] rounded-lg border border-edge bg-page px-2 py-1.5 text-sm focus:border-accent focus:outline-none"
+                  />
+                )}
+              </td>
+              <td className="truncate px-3 py-2">
                 {row.source.counterparty_name ?? (
                   <span className="text-ink-3">–</span>
                 )}
               </td>
               <td className={`px-3 py-2 ${dupe ? '' : 'text-ink-2'}`}>
                 {dupe ? (
-                  <span className="block max-w-64 truncate">{row.source.description ?? ''}</span>
+                  <span className="block truncate">{row.source.description ?? ''}</span>
                 ) : (
                   <input
                     type="text"
                     value={row.description}
                     onChange={(e) => onChangeDescription(index, e.target.value)}
                     aria-label="Omschrijving"
-                    className="w-full min-w-[12rem] rounded-lg border border-edge bg-page px-2 py-1.5 text-sm focus:border-accent focus:outline-none"
+                    className="w-full min-w-0 rounded-lg border border-edge bg-page px-2 py-1.5 text-sm focus:border-accent focus:outline-none"
                   />
                 )}
               </td>
@@ -585,7 +632,7 @@ function PreviewTable({
                     onChange={(e) => onChangeAmount(index, e.target.value)}
                     aria-label="Bedrag"
                     aria-invalid={row.amountInvalid}
-                    className={`w-28 rounded-lg border border-edge bg-page px-2 py-1.5 text-right text-sm tabular-nums focus:border-accent focus:outline-none ${
+                    className={`w-full min-w-0 rounded-lg border border-edge bg-page px-2 py-1.5 text-right text-sm tabular-nums focus:border-accent focus:outline-none ${
                       row.amountInvalid ? 'border-crit' : ''
                     }`}
                   />
@@ -620,6 +667,17 @@ function PreviewTable({
                     </button>
                   </div>
                 )}
+              </td>
+              <td className="px-3 py-2 text-right">
+                <button
+                  type="button"
+                  onClick={() => onRemove(index)}
+                  aria-label="Rij verwijderen"
+                  title="Deze rij niet importeren"
+                  className="rounded-lg p-2 text-ink-3 transition-colors hover:text-crit"
+                >
+                  <IconTrash className="size-4" />
+                </button>
               </td>
             </tr>
           )
