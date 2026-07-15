@@ -170,7 +170,12 @@ function DashboardBody({ data }: { data: DashboardData }) {
               staafgrafiek (order-last); op desktop houdt de bron-volgorde de staaf
               rechtsboven. */}
           <section className="grid gap-4 lg:grid-cols-2">
-            <DonutCard title="Inkomen per categorie" kind="income" rows={donutRows('Inkomen')} />
+            <DonutCard
+              title="Inkomen per categorie"
+              kind="income"
+              rows={donutRows('Inkomen')}
+              budgetCents={inkomen?.budget_cents}
+            />
             <div className="max-md:order-last">
               <TrackedVsBudget months={data.months} selectedMonth={data.month} />
             </div>
@@ -178,8 +183,14 @@ function DashboardBody({ data }: { data: DashboardData }) {
               title="Uitgaven per categorie"
               kind="expense"
               rows={donutRows('Uitgaven')}
+              budgetCents={uitgaven?.budget_cents}
             />
-            <DonutCard title="Sparen per categorie" kind="saving" rows={donutRows('Sparen')} />
+            <DonutCard
+              title="Sparen per categorie"
+              kind="saving"
+              rows={donutRows('Sparen')}
+              budgetCents={sparen?.budget_cents}
+            />
           </section>
 
           <CategoryTable categories={data.categories} />

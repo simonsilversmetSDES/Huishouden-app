@@ -5,7 +5,7 @@
 import { useState } from 'react'
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recharts'
 import { OTHER_HEX, RAMPS } from '../lib/chartColors'
-import { formatCents } from '../lib/format'
+import { formatCents, formatCentsPlain } from '../lib/format'
 import { useChartPress } from '../lib/useChartPress'
 
 const TOP_N = 5
@@ -29,6 +29,9 @@ interface DonutCardProps {
   subtitle?: string
   /** Tailwind-maat van de ring (default h-36 w-36). */
   ringClass?: string
+  /** Totaal budget voor dit type — toont op mobiel een "van X · % · boven doel"-regel
+   * onder het totaal (op desktop staat die info in de type-tegels). */
+  budgetCents?: number
 }
 
 export default function DonutCard({
@@ -38,6 +41,7 @@ export default function DonutCard({
   maxSegments = TOP_N,
   subtitle,
   ringClass = 'h-36 w-36',
+  budgetCents,
 }: DonutCardProps) {
   const [hidden, setHidden] = useState<Set<string>>(new Set())
   // Op mobiel toont de ring z'n tooltip enkel zolang je erop duwt (press-to-show);
@@ -142,13 +146,46 @@ export default function DonutCard({
                 )
               })}
             </ul>
-            <p className="mt-3 flex items-center border-t border-line pt-2 text-sm font-medium">
-              Totaal
-              <span className="ml-auto tabular-nums">{formatCents(total)}</span>
-            </p>
+            <div className="mt-3 border-t border-line pt-2">
+              <p className="flex items-center text-sm font-medium">
+                Totaal
+                <span className="ml-auto tabular-nums">{formatCents(total)}</span>
+              </p>
+              {budgetCents !== undefined && budgetCents > 0 && (
+                <BudgetLine actual={total} budget={budgetCents} isExpense={kind === 'expense'} />
+              )}
+            </div>
           </div>
         </div>
       )}
     </div>
+  )
+}
+
+// Budget-vs-werkelijk voor het totaal, enkel op mobiel: op desktop staat deze
+// info al in de type-tegels bovenaan het dashboard.
+function BudgetLine({
+  actual,
+  budget,
+  isExpense,
+}: {
+  actual: number
+  budget: number
+  isExpense: boolean
+}) {
+  const pct = Math.round((actual / budget) * 100)
+  const remaining = Math.max(budget - actual, 0)
+  const excess = Math.max(actual - budget, 0)
+  return (
+    <p className="mt-0.5 text-xs tabular-nums text-ink-3 md:hidden">
+      van {formatCentsPlain(budget)}
+      {` · ${pct} %`}
+      {remaining > 0 && ` · nog ${formatCentsPlain(remaining)}`}
+      {excess > 0 && (
+        <span className={isExpense ? 'text-crit' : 'text-good'}>
+          {' '}· {formatCentsPlain(excess)} {isExpense ? 'boven budget' : 'boven doel'}
+        </span>
+      )}
+    </p>
   )
 }
