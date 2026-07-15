@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 import { useAppState } from '../state/AppState'
@@ -24,11 +25,34 @@ const NAV = [
 // context-switcher zou daar dubbelop of misleidend zijn.
 const HIDE_CONTEXT_SWITCHER = ['/financien/vermogen', '/financien/lening']
 
+// Op Beleggingen bestaat er geen gemeenschappelijke portefeuille — enkel Simon
+// en Jozefien beleggen. Verberg daar de Gemeenschappelijk-context.
+const HIDE_SHARED_CONTEXT = ['/financien/beleggingen']
+const SHARED_CONTEXT_NAME = 'Gemeenschappelijk'
+
+// Transacties, Import en Regels tonen brede databestanden; geef die op grote
+// schermen meer horizontale ruimte (85% van het scherm) i.p.v. de 5xl-kolom.
+const WIDE_MAIN = ['/financien/transacties']
+
 export default function FinanceLayout() {
   const { user, logout } = useAuth()
   const { contexts, contextId, setContextId } = useAppState()
   const location = useLocation()
   const showContextSwitcher = !HIDE_CONTEXT_SWITCHER.some((p) => location.pathname.startsWith(p))
+  const hideShared = HIDE_SHARED_CONTEXT.some((p) => location.pathname.startsWith(p))
+  const wideMain = WIDE_MAIN.some((p) => location.pathname.startsWith(p))
+  const visibleContexts = hideShared
+    ? contexts.filter((c) => c.name !== SHARED_CONTEXT_NAME)
+    : contexts
+
+  // Staat de actieve context verborgen op deze tab, schakel dan naar de eerste
+  // zichtbare (bv. van Gemeenschappelijk → Simon bij het openen van Beleggingen).
+  useEffect(() => {
+    if (contextId === null) return
+    if (!visibleContexts.some((c) => c.id === contextId) && visibleContexts[0]) {
+      setContextId(visibleContexts[0].id)
+    }
+  }, [contextId, visibleContexts, setContextId])
 
   return (
     <div className="min-h-dvh bg-page pb-[calc(5rem+env(safe-area-inset-bottom))] text-ink">
@@ -43,7 +67,7 @@ export default function FinanceLayout() {
           </Link>
           {showContextSwitcher && (
             <nav className="scrollbar-none flex items-center gap-1 overflow-x-auto overscroll-x-contain">
-              {contexts.map((c) => (
+              {visibleContexts.map((c) => (
                 <button
                   key={c.id}
                   onClick={() => setContextId(c.id)}
@@ -68,7 +92,11 @@ export default function FinanceLayout() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-5xl px-4 py-6">
+      <main
+        className={`mx-auto px-4 py-6 ${
+          wideMain ? 'max-w-5xl xl:max-w-[85vw]' : 'max-w-5xl'
+        }`}
+      >
         <Outlet />
       </main>
 
