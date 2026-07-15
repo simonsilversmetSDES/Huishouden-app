@@ -176,6 +176,9 @@ def seed_rules(db: Session, contexts: dict[str, Context]) -> None:
                     cat_name,
                 )
                 continue
+            # .first() i.p.v. .one_or_none(): er mogen meerdere regels met dezelfde
+            # match bestaan (bv. een Eten-regel plus een gedupliceerde Boodschappen-
+            # variant). De seed wil enkel weten óf de match al voorkomt.
             exists = db.scalars(
                 select(CategorizationRule).where(
                     CategorizationRule.context_id == ctx.id,
@@ -183,7 +186,7 @@ def seed_rules(db: Session, contexts: dict[str, Context]) -> None:
                     CategorizationRule.match_type == MatchType.CONTAINS,
                     CategorizationRule.match_value == value,
                 )
-            ).one_or_none()
+            ).first()
             if exists is None:
                 db.add(
                     CategorizationRule(
