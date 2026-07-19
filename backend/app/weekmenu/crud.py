@@ -1,6 +1,6 @@
-"""Database-operaties voor Weekmenu (Fase 2: recept opslaan met ingrediënt-matching)."""
+"""Database-operaties voor Weekmenu (Fase 2: opslaan; Fase 3: CRUD + ingrediëntenbeheer)."""
 
-from sqlalchemy import select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
 from app.weekmenu.errors import WeekmenuError
@@ -13,8 +13,19 @@ from app.weekmenu.models import (
     RecipeIngredient,
     RecipeMoment,
     RecipeTime,
+    ShoppingCategory,
+    ShoppingListItem,
+    WeekPlanEntry,
 )
-from app.weekmenu.schemas import RecipeCreate, RecipeIngredientOut, RecipeOut
+from app.weekmenu.schemas import (
+    IngredientOut,
+    IngredientPatch,
+    RecipeCreate,
+    RecipeIngredientIn,
+    RecipeIngredientOut,
+    RecipeOut,
+    RecipeUpdate,
+)
 
 
 def normalize_ingredient_name(name: str) -> str:
@@ -49,9 +60,29 @@ def _check_attribute_ids(db: Session, data: RecipeCreate) -> None:
             raise WeekmenuError(400, "unknown_attribute", f"Onbekende {label}: {value}.")
 
 
+def _build_ingredient_links(db: Session, items: list[RecipeIngredientIn]) -> list[RecipeIngredient]:
+    """Koppelrijen voor een recept; dubbele ingrediënten binnen het recept worden
+    samengevoegd tot één koppelrij (eerste hoeveelheid wint)."""
+    links: list[RecipeIngredient] = []
+    seen_ingredient_ids: set[int] = set()
+    for item in items:
+        ingredient = get_or_create_ingredient(db, item.name)
+        if ingredient.id in seen_ingredient_ids:
+            continue
+        seen_ingredient_ids.add(ingredient.id)
+        links.append(
+            RecipeIngredient(
+                ingredient=ingredient,
+                quantity=item.quantity,
+                unit=item.unit,
+                note=item.note,
+            )
+        )
+    return links
+
+
 def create_recipe(db: Session, data: RecipeCreate, photo_path: str | None) -> Recipe:
-    """Recept + koppelrijen in één commit; dubbele ingrediënten binnen het recept
-    worden samengevoegd tot één koppelrij (eerste hoeveelheid wint)."""
+    """Recept + koppelrijen in één commit."""
     _check_attribute_ids(db, data)
     recipe = Recipe(
         title=data.title.strip(),
@@ -64,24 +95,154 @@ def create_recipe(db: Session, data: RecipeCreate, photo_path: str | None) -> Re
         difficulty_id=data.difficulty_id,
     )
     db.add(recipe)
-
-    seen_ingredient_ids: set[int] = set()
-    for item in data.ingredients:
-        ingredient = get_or_create_ingredient(db, item.name)
-        if ingredient.id in seen_ingredient_ids:
-            continue
-        seen_ingredient_ids.add(ingredient.id)
-        recipe.ingredients.append(
-            RecipeIngredient(
-                ingredient=ingredient,
-                quantity=item.quantity,
-                unit=item.unit,
-                note=item.note,
-            )
-        )
+    recipe.ingredients = _build_ingredient_links(db, data.ingredients)
     db.commit()
     db.refresh(recipe)
     return recipe
+
+
+def list_recipes(db: Session) -> list[Recipe]:
+    return list(db.scalars(select(Recipe).order_by(func.lower(Recipe.title))))
+
+
+def get_recipe(db: Session, recipe_id: int) -> Recipe:
+    recipe = db.get(Recipe, recipe_id)
+    if recipe is None:
+        raise WeekmenuError(404, "not_found", "Recept niet gevonden.")
+    return recipe
+
+
+def update_recipe(
+    db: Session, recipe_id: int, data: RecipeUpdate, new_photo_path: str | None
+) -> tuple[Recipe, str | None]:
+    """Volledige vervanging van scalars + ingrediëntenlijst (delete-orphan ruimt de
+    oude koppelrijen op; canonieke ingrediënten blijven altijd bestaan).
+
+    Geeft naast het recept de OUDE bestandsnaam terug die de router — ná de commit —
+    van schijf mag verwijderen (None als de foto ongemoeid blijft). Bij een mislukte
+    nieuwe opslag (new_photo_path is None zonder remove_photo) blijft de oude foto staan.
+    """
+    recipe = get_recipe(db, recipe_id)
+    _check_attribute_ids(db, data)
+
+    recipe.title = data.title.strip()
+    recipe.description = data.description
+    recipe.source_url = data.source_url
+    recipe.moment_id = data.moment_id
+    recipe.category_id = data.category_id
+    recipe.time_id = data.time_id
+    recipe.difficulty_id = data.difficulty_id
+    recipe.ingredients = _build_ingredient_links(db, data.ingredients)
+
+    photo_to_delete: str | None = None
+    if new_photo_path is not None:
+        photo_to_delete = recipe.photo_path
+        recipe.photo_path = new_photo_path
+    elif data.remove_photo:
+        photo_to_delete = recipe.photo_path
+        recipe.photo_path = None
+
+    db.commit()
+    db.refresh(recipe)
+    return recipe, photo_to_delete
+
+
+def delete_recipe(db: Session, recipe_id: int) -> str | None:
+    """Verwijder een recept + koppelrijen en ruim referenties expliciet op (SQLite
+    dwingt FK's niet overal af — hangende referenties zouden Fase 4/5 stil corrumperen):
+    weekplan-rijen verdwijnen mee (een rij zonder recept én zonder vrije tekst schendt
+    de invariant), boodschappen-items verliezen enkel hun MENU-herkomst.
+
+    Geeft de bestandsnaam van de foto terug zodat de router die van schijf verwijdert.
+    """
+    recipe = get_recipe(db, recipe_id)
+    photo_path = recipe.photo_path
+    db.execute(delete(WeekPlanEntry).where(WeekPlanEntry.recipe_id == recipe_id))
+    db.execute(
+        update(ShoppingListItem)
+        .where(ShoppingListItem.recipe_id == recipe_id)
+        .values(recipe_id=None)
+    )
+    db.delete(recipe)
+    db.commit()
+    return photo_path
+
+
+def _ingredient_out(db: Session, ingredient: Ingredient) -> IngredientOut:
+    recipe_count = db.scalar(
+        select(func.count())
+        .select_from(RecipeIngredient)
+        .where(RecipeIngredient.ingredient_id == ingredient.id)
+    )
+    return IngredientOut(
+        id=ingredient.id,
+        name=ingredient.name,
+        pantry_type=ingredient.pantry_type,
+        shopping_category_id=ingredient.shopping_category_id,
+        recipe_count=recipe_count or 0,
+    )
+
+
+def list_ingredients(db: Session) -> list[IngredientOut]:
+    """Alle ingrediënten met het aantal recepten dat ze gebruikt (beheerscherm)."""
+    rows = db.execute(
+        select(Ingredient, func.count(RecipeIngredient.id))
+        .outerjoin(RecipeIngredient, RecipeIngredient.ingredient_id == Ingredient.id)
+        .group_by(Ingredient.id)
+        .order_by(func.lower(Ingredient.name))
+    ).all()
+    return [
+        IngredientOut(
+            id=ingredient.id,
+            name=ingredient.name,
+            pantry_type=ingredient.pantry_type,
+            shopping_category_id=ingredient.shopping_category_id,
+            recipe_count=count,
+        )
+        for ingredient, count in rows
+    ]
+
+
+def patch_ingredient(db: Session, ingredient_id: int, patch: IngredientPatch) -> IngredientOut:
+    """Gedeeltelijke update; alleen expliciet meegestuurde velden wijzigen."""
+    ingredient = db.get(Ingredient, ingredient_id)
+    if ingredient is None:
+        raise WeekmenuError(404, "not_found", "Ingrediënt niet gevonden.")
+
+    fields = patch.model_fields_set
+    if "name" in fields:
+        assert patch.name is not None  # afgedwongen door schema-validator
+        name = patch.name.strip()
+        normalized = normalize_ingredient_name(name)
+        clash = db.scalar(
+            select(Ingredient).where(
+                Ingredient.normalized_name == normalized, Ingredient.id != ingredient_id
+            )
+        )
+        if clash is not None:
+            raise WeekmenuError(
+                409, "duplicate_ingredient", f"Er bestaat al een ingrediënt '{clash.name}'."
+            )
+        ingredient.name = name
+        ingredient.normalized_name = normalized
+    if "pantry_type" in fields:
+        assert patch.pantry_type is not None  # afgedwongen door schema-validator
+        ingredient.pantry_type = patch.pantry_type
+    if "shopping_category_id" in fields:
+        if (
+            patch.shopping_category_id is not None
+            and db.get(ShoppingCategory, patch.shopping_category_id) is None
+        ):
+            raise WeekmenuError(
+                400,
+                "unknown_attribute",
+                f"Onbekende shopping_category_id: {patch.shopping_category_id}.",
+            )
+        ingredient.shopping_category_id = patch.shopping_category_id
+
+    db.commit()
+    db.refresh(ingredient)
+    return _ingredient_out(db, ingredient)
 
 
 def recipe_to_out(recipe: Recipe) -> RecipeOut:
