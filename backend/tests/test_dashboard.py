@@ -199,6 +199,45 @@ class TestJaarWeergave:
             assert juni["Uitgaven"]["actual_cents"] == 99900
             assert juni["Uitgaven"]["budget_cents"] == 0
 
+    def test_ytd_telt_enkel_maanden_tot_grens(
+        self, logged_in: TestClient, seeded_db: Session
+    ) -> None:
+        """YTD (month_to): enkel maanden 1..month_to tellen, budget én werkelijk.
+        Met month_to=6 valt juli weg; enkel de juni-uitgave (999) blijft over en het
+        juli-budget telt niet mee — zo blijft budget vs. werkelijk vergelijkbaar."""
+        context_id = _setup_maand(logged_in, seeded_db)
+        resp = logged_in.get(
+            "/api/dashboard",
+            params={"context_id": context_id, "year": 2025, "month_to": 6},
+        )
+        assert resp.status_code == 200
+        data = resp.json()
+
+        assert data["month"] is None
+        assert data["month_to"] == 6
+        totals = {t["type"]: t for t in data["type_totals"]}
+        assert totals["Uitgaven"]["actual_cents"] == 99900  # enkel juni 999
+        assert totals["Uitgaven"]["budget_cents"] == 0  # juli-budget valt buiten YTD
+        assert totals["Inkomen"]["actual_cents"] == 0  # juli-inkomen valt buiten YTD
+        assert data["to_be_allocated_cents"] == 0
+        assert data["uncategorized_count"] == 0  # de ongecat. € 10 is een juli-transactie
+        assert [m["month"] for m in data["months"]] == list(range(1, 13))
+
+    def test_ytd_tot_juli_gelijk_aan_jaar(
+        self, logged_in: TestClient, seeded_db: Session
+    ) -> None:
+        """Alle testdata ligt t/m juli, dus month_to=7 geeft dezelfde totalen als heel jaar."""
+        context_id = _setup_maand(logged_in, seeded_db)
+        resp = logged_in.get(
+            "/api/dashboard",
+            params={"context_id": context_id, "year": 2025, "month_to": 7},
+        )
+        data = resp.json()
+        totals = {t["type"]: t for t in data["type_totals"]}
+        assert totals["Uitgaven"]["actual_cents"] == 120900  # juli 210 + juni 999
+        assert totals["Inkomen"]["actual_cents"] == 305000
+        assert data["to_be_allocated_cents"] == 250000
+
     def test_maandweergave_categorien_ongewijzigd(
         self, logged_in: TestClient, seeded_db: Session
     ) -> None:

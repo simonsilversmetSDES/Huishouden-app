@@ -7,8 +7,12 @@ overschrijvingen tellen niet mee. Een transactie telt in de maand van haar
 effective_date (budgetmaand) — zoals in de Excel, waar loon van eind
 december voor januari telt.
 
-month=None = het hele jaar ("Total Year" in de oude Excel). Het antwoord
-bevat altijd de 12 maandtotalen per type, voor de staafgrafiek.
+Periode: een losse maand (`month`), year-to-date (`month_to`: maanden
+1..month_to) of het hele jaar (beide None → "Total Year" in de oude Excel).
+Bij YTD tellen budget én werkelijk enkel de maanden t/m month_to, zodat de
+vergelijking eerlijk blijft (het volledige jaarbudget naast enkel de reeds
+verstreken maanden gaf een scheef beeld). Het antwoord bevat altijd de 12
+maandtotalen per type, voor de staafgrafiek.
 """
 
 from datetime import date
@@ -29,7 +33,11 @@ def _actual_magnitude(tx_type: CategoryType, amount: Decimal) -> Decimal:
 
 
 def build_dashboard(
-    db: Session, context: Context, year: int, month: int | None = None
+    db: Session,
+    context: Context,
+    year: int,
+    month: int | None = None,
+    month_to: int | None = None,
 ) -> DashboardOut:
     categories = db.scalars(
         select(Category)
@@ -53,8 +61,16 @@ def build_dashboard(
         )
     ).all()
 
+    # Periode-venster [lo, hi] (incl.): losse maand, YTD (1..month_to) of heel jaar.
+    if month is not None:
+        lo = hi = month
+    elif month_to is not None:
+        lo, hi = 1, month_to
+    else:
+        lo, hi = 1, 12
+
     def in_period(m: int) -> bool:
-        return month is None or m == month
+        return lo <= m <= hi
 
     monthly_budget: dict[int, dict[CategoryType, Decimal]] = {
         m: dict.fromkeys(TYPE_ORDER, ZERO) for m in range(1, 13)
@@ -118,6 +134,7 @@ def build_dashboard(
         context_id=context.id,
         year=year,
         month=month,
+        month_to=month_to,
         to_be_allocated_cents=to_cents(tba),
         type_totals=[
             TypeTotal(

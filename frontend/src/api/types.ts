@@ -29,7 +29,8 @@ export interface MonthTotals {
 export interface DashboardData {
   context_id: number
   year: number
-  month: number | null // null = heel jaar
+  month: number | null // gekozen losse maand; null bij YTD of heel jaar
+  month_to: number | null // YTD-eindmaand (1..month_to); null = losse maand of heel jaar
   to_be_allocated_cents: number
   type_totals: TypeTotal[]
   categories: CategoryStatus[]
