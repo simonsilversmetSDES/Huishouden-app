@@ -2,7 +2,8 @@
 // Excel: per type één gestapelde balk. De volle basis = min(werkelijk, budget);
 // daarboven een donker segment als werkelijk het budget overschrijdt, of een
 // lichte tint als er budget overblijft. De balk reikt dus tot max(werkelijk,
-// budget). In maand-modus dimt de niet-gekozen maand; de legend schakelt types.
+// budget). Maanden buiten de gekozen periode dimmen (één maand, of alles na de
+// YTD-grens); de legend schakelt types.
 
 import { useState } from 'react'
 import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
@@ -27,11 +28,11 @@ const euroInt = new Intl.NumberFormat('nl-BE', { maximumFractionDigits: 0 })
 
 interface TrackedVsBudgetProps {
   months: MonthTotals[]
-  /** In maand-modus: de gekozen maand (1–12); de andere maanden dimmen. */
-  selectedMonth: number | null
+  /** Maanden binnen [from, to] (incl.) blijven vol; daarbuiten dimt. null = alles vol. */
+  highlight: { from: number; to: number } | null
 }
 
-export default function TrackedVsBudget({ months, selectedMonth }: TrackedVsBudgetProps) {
+export default function TrackedVsBudget({ months, highlight }: TrackedVsBudgetProps) {
   const [visible, setVisible] = useState<Record<CategoryType, boolean>>({
     Inkomen: true,
     Uitgaven: true,
@@ -51,7 +52,8 @@ export default function TrackedVsBudget({ months, selectedMonth }: TrackedVsBudg
     return { ...row, label: MAAND_KORT[m.month - 1] }
   })
 
-  const dimmed = (month: number) => selectedMonth !== null && month !== selectedMonth
+  const dimmed = (month: number) =>
+    highlight !== null && (month < highlight.from || month > highlight.to)
   const opacity = (month: number) => (dimmed(month) ? 0.25 : 1)
 
   return (

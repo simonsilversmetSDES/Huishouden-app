@@ -4,7 +4,7 @@ import { api } from '../api/client'
 import type { AccountStatus, CategoryStatus, CategoryType, DashboardData, TypeTotal } from '../api/types'
 import DonutCard from '../components/DonutCard'
 import Meter, { spendingTone, type MeterTone } from '../components/Meter'
-import PeriodPicker, { currentPeriod, type Period } from '../components/PeriodPicker'
+import PeriodPicker, { currentPeriod, ytdCutoff, type Period } from '../components/PeriodPicker'
 import TrackedVsBudget from '../components/TrackedVsBudget'
 import { formatCents, formatCentsPlain, formatMonthYear } from '../lib/format'
 import { useIsMobile } from '../lib/useMediaQuery'
@@ -32,8 +32,13 @@ export default function Dashboard() {
   const load = useCallback(() => {
     if (contextId === null) return
     setError(null)
-    const monthParam = period.mode === 'maand' ? `&month=${period.month}` : ''
-    api<DashboardData>(`/api/dashboard?context_id=${contextId}&year=${period.year}${monthParam}`)
+    const periodParam =
+      period.mode === 'maand'
+        ? `&month=${period.month}`
+        : period.mode === 'ytd'
+          ? `&month_to=${ytdCutoff(period.year)}`
+          : ''
+    api<DashboardData>(`/api/dashboard?context_id=${contextId}&year=${period.year}${periodParam}`)
       .then(setData)
       .catch(() => setError('Dashboard laden mislukt — probeer opnieuw'))
   }, [contextId, period])
@@ -44,7 +49,11 @@ export default function Dashboard() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
         <h1 className="text-lg font-semibold capitalize">
-          {period.mode === 'maand' ? formatMonthYear(period.year, period.month) : period.year}
+          {period.mode === 'maand'
+            ? formatMonthYear(period.year, period.month)
+            : period.mode === 'ytd'
+              ? `${period.year} · YTD`
+              : period.year}
         </h1>
         <div className="ml-auto">
           <PeriodPicker period={period} onChange={setPeriod} />
@@ -62,7 +71,7 @@ export default function Dashboard() {
 
       {contextId !== null && <VermogenGlance contextId={contextId} />}
 
-      {!error && data && <DashboardBody data={data} />}
+      {!error && data && <DashboardBody data={data} period={period} />}
       {!error && !data && <p className="py-12 text-center text-sm text-ink-3">Laden…</p>}
     </div>
   )
@@ -93,10 +102,18 @@ function VermogenGlance({ contextId }: { contextId: number }) {
   )
 }
 
-function DashboardBody({ data }: { data: DashboardData }) {
+function DashboardBody({ data, period }: { data: DashboardData; period: Period }) {
   const tba = data.to_be_allocated_cents
   const tbaTone = tba === 0 ? 'good' : tba > 0 ? 'accent' : 'crit'
-  const periodWord = data.month === null ? 'dit jaar' : 'deze maand'
+  const periodWord =
+    period.mode === 'maand' ? 'deze maand' : period.mode === 'ytd' ? 'YTD' : 'dit jaar'
+  // Staafgrafiek: markeer de gekozen maand, of alles t/m de YTD-grens; jaar = alles.
+  const highlight =
+    period.mode === 'maand'
+      ? { from: period.month, to: period.month }
+      : period.mode === 'ytd'
+        ? { from: 1, to: ytdCutoff(period.year) }
+        : null
 
   const totals = new Map(data.type_totals.map((t) => [t.type, t]))
   const inkomen = totals.get('Inkomen')
@@ -169,7 +186,7 @@ function DashboardBody({ data }: { data: DashboardData }) {
           {/* Grafieken zoals in de Excel */}
           <section className="grid gap-4 lg:grid-cols-2">
             <DonutCard title="Inkomen per categorie" kind="income" rows={donutRows('Inkomen')} />
-            <TrackedVsBudget months={data.months} selectedMonth={data.month} />
+            <TrackedVsBudget months={data.months} highlight={highlight} />
             <DonutCard
               title="Uitgaven per categorie"
               kind="expense"

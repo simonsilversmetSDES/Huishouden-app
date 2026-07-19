@@ -1,10 +1,16 @@
-// Periode-keuze zoals in de oude Excel: een losse maand of het hele jaar
-// ("Total Year"), met ‹ ›-navigatie binnen de gekozen modus.
+// Periode-keuze zoals in de oude Excel: een losse maand, year-to-date (YTD) of
+// het hele jaar ("Total Year"), met ‹ ›-navigatie binnen de gekozen modus.
 
 export interface Period {
-  mode: 'maand' | 'jaar'
+  mode: 'maand' | 'ytd' | 'jaar'
   year: number
   month: number
+}
+
+const MODE_LABEL: Record<Period['mode'], string> = {
+  maand: 'Maand',
+  ytd: 'YTD',
+  jaar: 'Jaar',
 }
 
 export function currentPeriod(mode: Period['mode'] = 'maand'): Period {
@@ -12,15 +18,25 @@ export function currentPeriod(mode: Period['mode'] = 'maand'): Period {
   return { mode, year: now.getFullYear(), month: now.getMonth() + 1 }
 }
 
+// YTD-eindmaand voor een jaar: t/m de huidige maand in het lopende jaar; een
+// verstreken jaar is volledig "to date", een toekomstig jaar nog niet begonnen.
+export function ytdCutoff(year: number): number {
+  const now = new Date()
+  if (year < now.getFullYear()) return 12
+  if (year > now.getFullYear()) return 1
+  return now.getMonth() + 1
+}
+
 export function shiftPeriod(period: Period, delta: number): Period {
-  if (period.mode === 'jaar') return { ...period, year: period.year + delta }
+  // YTD en jaar navigeren per jaar; enkel maand-modus schuift per maand.
+  if (period.mode !== 'maand') return { ...period, year: period.year + delta }
   const index = period.year * 12 + (period.month - 1) + delta
   return { ...period, year: Math.floor(index / 12), month: (index % 12) + 1 }
 }
 
 export function isCurrentPeriod(period: Period): boolean {
   const now = currentPeriod(period.mode)
-  return period.year === now.year && (period.mode === 'jaar' || period.month === now.month)
+  return period.year === now.year && (period.mode !== 'maand' || period.month === now.month)
 }
 
 interface PeriodPickerProps {
@@ -32,17 +48,17 @@ export default function PeriodPicker({ period, onChange }: PeriodPickerProps) {
   return (
     <div className="flex items-center gap-1.5">
       <div className="flex rounded-lg border border-edge bg-surface p-0.5">
-        {(['maand', 'jaar'] as const).map((mode) => (
+        {(['maand', 'ytd', 'jaar'] as const).map((mode) => (
           <button
             key={mode}
             onClick={() => onChange({ ...period, mode })}
-            className={`rounded-md px-3 py-1 text-sm capitalize transition-colors ${
+            className={`rounded-md px-3 py-1 text-sm transition-colors ${
               period.mode === mode
                 ? 'bg-raised font-medium text-ink'
                 : 'text-ink-3 hover:text-ink-2'
             }`}
           >
-            {mode}
+            {MODE_LABEL[mode]}
           </button>
         ))}
       </div>
@@ -56,14 +72,14 @@ export default function PeriodPicker({ period, onChange }: PeriodPickerProps) {
       )}
       <button
         onClick={() => onChange(shiftPeriod(period, -1))}
-        aria-label={period.mode === 'jaar' ? 'Vorig jaar' : 'Vorige maand'}
+        aria-label={period.mode === 'maand' ? 'Vorige maand' : 'Vorig jaar'}
         className="rounded-lg border border-edge bg-surface px-3 py-1.5 text-sm text-ink-2 hover:bg-raised"
       >
         ‹
       </button>
       <button
         onClick={() => onChange(shiftPeriod(period, 1))}
-        aria-label={period.mode === 'jaar' ? 'Volgend jaar' : 'Volgende maand'}
+        aria-label={period.mode === 'maand' ? 'Volgende maand' : 'Volgend jaar'}
         className="rounded-lg border border-edge bg-surface px-3 py-1.5 text-sm text-ink-2 hover:bg-raised"
       >
         ›

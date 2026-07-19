@@ -27,7 +27,8 @@ class MonthTotals(BaseModel):
 class DashboardOut(BaseModel):
     context_id: int
     year: int
-    month: int | None  # None = heel jaar ("Total Year")
+    month: int | None  # gekozen losse maand; None bij YTD of heel jaar
+    month_to: int | None = None  # YTD-eindmaand (1..month_to); None = losse maand of heel jaar
     to_be_allocated_cents: int  # gebudgetteerde TBA van de periode
     type_totals: list[TypeTotal]
     categories: list[CategoryStatus]

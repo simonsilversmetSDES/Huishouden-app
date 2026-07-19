@@ -19,8 +19,9 @@ def get_dashboard(
     context_id: int,
     year: Annotated[int, Query(ge=2000, le=2100)],
     month: Annotated[int | None, Query(ge=1, le=12)] = None,
+    month_to: Annotated[int | None, Query(ge=1, le=12)] = None,
 ) -> DashboardOut:
     context = db.get(Context, context_id)
     if context is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Onbekende context")
-    return build_dashboard(db, context, year, month)
+    return build_dashboard(db, context, year, month, month_to)
