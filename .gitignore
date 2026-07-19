@@ -1,6 +1,9 @@
 # Echte financiële data (Excel + bank-CSV's) — NOOIT committen
 /data/
 
+# Weekmenu-receptfoto's (lokale data, op de mini-PC een Docker-volume)
+backend/data/
+
 # Secrets & lokale config
 .env
 .env.local

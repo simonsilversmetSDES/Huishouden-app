@@ -64,6 +64,11 @@ class Settings(BaseSettings):
     price_fetch_enabled: bool = True
     price_fetch_hour: int = 18
 
+    # Weekmenu: Claude API voor recept-parsing (URL-fallback + vision).
+    # Lege key = AI-parsing uitgeschakeld (parse-endpoint geeft dan 503 voor die paden).
+    anthropic_api_key: str = ""
+    anthropic_model: str = "claude-haiku-4-5"
+
 
 @lru_cache
 def get_settings() -> Settings:
