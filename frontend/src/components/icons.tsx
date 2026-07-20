@@ -109,6 +109,21 @@ export const IconPencil = svg(
   </>,
 )
 
+export const IconSliders = svg(
+  <>
+    <path d="M4 7h9M17 7h3" />
+    <circle cx="15" cy="7" r="2" />
+    <path d="M4 17h3M11 17h9" />
+    <circle cx="9" cy="17" r="2" />
+  </>,
+)
+
+export const IconPlus = svg(
+  <>
+    <path d="M12 5v14M5 12h14" />
+  </>,
+)
+
 export const IconTrash = svg(
   <>
     <path d="M4 6.5h16" />
