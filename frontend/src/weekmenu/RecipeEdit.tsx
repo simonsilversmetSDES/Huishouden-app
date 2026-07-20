@@ -40,9 +40,10 @@ export default function RecipeEdit() {
     description: recipe.description ?? '',
     source_url: recipe.source_url ?? '',
     moment_id: recipe.moment_id,
-    category_id: recipe.category_id,
+    category_ids: recipe.category_ids,
     time_id: recipe.time_id,
     difficulty_id: recipe.difficulty_id,
+    servings: recipe.servings,
     ingredients: recipe.ingredients.map((item) => ({
       name: item.name,
       quantity: item.quantity,

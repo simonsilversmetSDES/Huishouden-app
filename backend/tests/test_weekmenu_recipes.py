@@ -84,7 +84,7 @@ def test_dubbel_ingredient_in_een_recept_wordt_een_koppelrij(
 
 
 def test_onbekende_categorie_geeft_400(logged_in: TestClient, db: Session) -> None:
-    resp = logged_in.post(RECIPES_URL, json=_payload(category_id=999))
+    resp = logged_in.post(RECIPES_URL, json=_payload(category_ids=[999]))
     assert resp.status_code == 400
     assert resp.json()["detail"]["code"] == "unknown_attribute"
     assert db.query(Recipe).count() == 0

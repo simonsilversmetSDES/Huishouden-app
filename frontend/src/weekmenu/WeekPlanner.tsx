@@ -9,29 +9,11 @@ import { getWeek, photoUrl, putWeekDay } from './api'
 import RecipePickerModal from './RecipePickerModal'
 import type { RecipeListItem, WeekPlanDay, WeekPlanDayPayload } from './types'
 import { ErrorCard, inputClass, secondaryButtonClass } from './ui'
+import { addDays, fromIso, mondayOf, toIso } from './weekDates'
 
 const weekdayFmt = new Intl.DateTimeFormat('nl-BE', { weekday: 'long' })
 const shortWeekdayFmt = new Intl.DateTimeFormat('nl-BE', { weekday: 'short' })
 const shortDateFmt = new Intl.DateTimeFormat('nl-BE', { day: '2-digit', month: '2-digit' })
-
-function toIso(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-}
-
-function fromIso(iso: string): Date {
-  const [y, m, d] = iso.split('-').map(Number)
-  return new Date(y, m - 1, d)
-}
-
-function mondayOf(d: Date): Date {
-  const day = d.getDay() // 0 = zondag
-  const diff = day === 0 ? -6 : 1 - day
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate() + diff)
-}
-
-function addDays(d: Date, n: number): Date {
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate() + n)
-}
 
 export default function WeekPlanner() {
   const [monday, setMonday] = useState(() => mondayOf(new Date()))
@@ -63,6 +45,7 @@ export default function WeekPlanner() {
         recipe_id: current.recipe_id,
         free_text: current.free_text,
         checked: current.checked,
+        servings: current.servings,
         ...patch,
       }
       setDays((ds) => ds!.map((d) => (d.date === date ? { ...d, ...next } : d)))
@@ -122,12 +105,22 @@ export default function WeekPlanner() {
                 day={day}
                 onPickRecipe={() => setPickerDate(day.date)}
                 onClearRecipe={() =>
-                  saveDay(day.date, { recipe_id: null, free_text: null, checked: false })
+                  saveDay(day.date, {
+                    recipe_id: null,
+                    free_text: null,
+                    checked: false,
+                    servings: null,
+                  })
                 }
                 onSaveFreeText={(text) =>
-                  saveDay(day.date, { free_text: text === '' ? null : text, recipe_id: null })
+                  saveDay(day.date, {
+                    free_text: text === '' ? null : text,
+                    recipe_id: null,
+                    servings: null,
+                  })
                 }
                 onToggleChecked={() => saveDay(day.date, { checked: !day.checked })}
+                onChangeServings={(servings) => saveDay(day.date, { servings })}
               />
             ))}
           </div>
@@ -137,7 +130,11 @@ export default function WeekPlanner() {
         <RecipePickerModal
           onClose={() => setPickerDate(null)}
           onSelect={(recipe: RecipeListItem) => {
-            saveDay(pickerDate, { recipe_id: recipe.id, free_text: null })
+            saveDay(pickerDate, {
+              recipe_id: recipe.id,
+              free_text: null,
+              servings: recipe.servings,
+            })
             setPickerDate(null)
           }}
         />
@@ -152,12 +149,14 @@ function DayRow({
   onClearRecipe,
   onSaveFreeText,
   onToggleChecked,
+  onChangeServings,
 }: {
   day: WeekPlanDay
   onPickRecipe: () => void
   onClearRecipe: () => void
   onSaveFreeText: (text: string) => void
   onToggleChecked: () => void
+  onChangeServings: (servings: number) => void
 }) {
   const [text, setText] = useState(day.free_text ?? '')
   useEffect(() => setText(day.free_text ?? ''), [day.free_text])
@@ -210,6 +209,26 @@ function DayRow({
             >
               {day.recipe_title}
             </button>
+            <div className="flex shrink-0 items-center gap-1 rounded-md bg-page px-1">
+              <button
+                onClick={() => onChangeServings(Math.max(1, (day.servings ?? 1) - 1))}
+                aria-label="Minder personen"
+                className="flex size-6 items-center justify-center rounded text-ink-3 transition-colors hover:bg-surface hover:text-ink-2 disabled:opacity-40"
+                disabled={(day.servings ?? 1) <= 1}
+              >
+                −
+              </button>
+              <span className="min-w-4 text-center text-xs tabular-nums text-ink-2">
+                {day.servings ?? 1}
+              </span>
+              <button
+                onClick={() => onChangeServings((day.servings ?? 1) + 1)}
+                aria-label="Meer personen"
+                className="flex size-6 items-center justify-center rounded text-ink-3 transition-colors hover:bg-surface hover:text-ink-2"
+              >
+                +
+              </button>
+            </div>
             <button
               onClick={onClearRecipe}
               aria-label="Recept verwijderen"

@@ -17,6 +17,8 @@ dependencies = [
     "recipe-scrapers>=15.0",  # weekmenu: schema.org-receptparser
     "beautifulsoup4>=4.12",  # weekmenu: HTML → tekst voor de Claude-fallback
     "anthropic>=0.40",  # weekmenu: Claude API (URL-fallback + vision), server-side
+    "pypdf>=4.0",  # weekmenu: tekst uit PDF-recepten
+    "python-docx>=1.1",  # weekmenu: tekst uit Word-recepten (.docx)
 ]
 
 [project.optional-dependencies]

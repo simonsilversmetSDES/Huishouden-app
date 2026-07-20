@@ -19,6 +19,7 @@ import RecipeDetail from './weekmenu/RecipeDetail'
 import RecipeEdit from './weekmenu/RecipeEdit'
 import RecipeList from './weekmenu/RecipeList'
 import RecipeNew from './weekmenu/RecipeNew'
+import ShoppingList from './weekmenu/ShoppingList'
 import WeekmenuLayout from './weekmenu/WeekmenuLayout'
 import WeekPlanner from './weekmenu/WeekPlanner'
 
@@ -56,6 +57,7 @@ export default function App() {
             <Route path="/weekmenu" element={<WeekmenuLayout />}>
               <Route index element={<RecipeList />} />
               <Route path="week" element={<WeekPlanner />} />
+              <Route path="boodschappen" element={<ShoppingList />} />
               <Route path="recepten/nieuw" element={<RecipeNew />} />
               <Route path="recepten/:id" element={<RecipeDetail />} />
               <Route path="recepten/:id/bewerken" element={<RecipeEdit />} />

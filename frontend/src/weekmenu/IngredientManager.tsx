@@ -177,6 +177,34 @@ function PantrySelect({
   )
 }
 
+/** Enkel betekenisvol bij pantry_type 'pantry' — anders een neutrale streep. */
+function InStockToggle({
+  row,
+  busy,
+  onChange,
+}: {
+  row: IngredientRow
+  busy: boolean
+  onChange: (inStock: boolean) => void
+}) {
+  if (row.pantry_type !== 'pantry') {
+    return <span className="text-sm text-ink-3">—</span>
+  }
+  return (
+    <label className="flex items-center gap-1.5 text-sm">
+      <input
+        type="checkbox"
+        checked={row.in_stock}
+        disabled={busy}
+        onChange={(e) => onChange(e.target.checked)}
+        aria-label={`Op voorraad: ${row.name}`}
+        className="size-4 rounded border-edge accent-accent disabled:opacity-50"
+      />
+      {row.in_stock ? 'Op voorraad' : 'Aanvullen'}
+    </label>
+  )
+}
+
 function CategorySelect({
   row,
   shoppingCategories,
@@ -214,6 +242,7 @@ function IngredientTable({ rows, shoppingCategories, busyId, onPatch }: RowProps
           <th className="px-5 py-3 text-left font-medium">Naam</th>
           <th className="px-3 py-3 text-left font-medium">Voorraadtype</th>
           <th className="px-3 py-3 text-left font-medium">Winkelcategorie</th>
+          <th className="px-3 py-3 text-left font-medium">Op voorraad</th>
           <th className="px-5 py-3 text-right font-medium">Recepten</th>
         </tr>
       </thead>
@@ -242,6 +271,13 @@ function IngredientTable({ rows, shoppingCategories, busyId, onPatch }: RowProps
                   shoppingCategories={shoppingCategories}
                   busy={busy}
                   onChange={(shopping_category_id) => void onPatch(row, { shopping_category_id })}
+                />
+              </td>
+              <td className="px-3 py-1.5">
+                <InStockToggle
+                  row={row}
+                  busy={busy}
+                  onChange={(in_stock) => void onPatch(row, { in_stock })}
                 />
               </td>
               <td className="px-5 py-1.5 text-right tabular-nums text-ink-3">
@@ -287,6 +323,13 @@ function IngredientCards({ rows, shoppingCategories, busyId, onPatch }: RowProps
                 onChange={(shopping_category_id) => void onPatch(row, { shopping_category_id })}
               />
             </div>
+            {row.pantry_type === 'pantry' && (
+              <InStockToggle
+                row={row}
+                busy={busy}
+                onChange={(in_stock) => void onPatch(row, { in_stock })}
+              />
+            )}
           </li>
         )
       })}

@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ApiError } from '../api/client'
-import { deleteRecipe, getRecipe, photoUrl } from './api'
+import { deleteRecipe, getRecipe, patchRecipeServings, photoUrl } from './api'
+import { scaleQuantity } from './servings'
 import type { Recipe } from './types'
 import { ColorPill, ErrorCard, Pill, secondaryButtonClass } from './ui'
 import { attributeName, useAttributes } from './useAttributes'
@@ -16,6 +17,7 @@ export default function RecipeDetail() {
   const [recipe, setRecipe] = useState<Recipe | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const [servingsError, setServingsError] = useState<string | null>(null)
 
   const load = useCallback(() => {
     setError(null)
@@ -45,10 +47,34 @@ export default function RecipeDetail() {
     }
   }
 
+  function adjustServings(delta: number) {
+    if (!recipe) return
+    const base = recipe.servings ?? 1
+    const next = Math.max(1, base + delta)
+    if (next === base) return
+    const factor = next / base
+    const previous = recipe
+    setServingsError(null)
+    setRecipe({
+      ...recipe,
+      servings: next,
+      ingredients: recipe.ingredients.map((item) => ({
+        ...item,
+        quantity: scaleQuantity(item.quantity, factor),
+      })),
+    })
+    patchRecipeServings(recipe.id, next)
+      .then(setRecipe) // vervangt de optimistic schatting door de server-geschaalde waarden
+      .catch(() => {
+        setRecipe(previous)
+        setServingsError('Aanpassen mislukt — probeer opnieuw')
+      })
+  }
+
   if (error) return <ErrorCard message={error} onRetry={load} />
   if (recipe === null) return <p className="py-12 text-center text-sm text-ink-3">Laden…</p>
 
-  const category = attributes?.categories.find((c) => c.id === recipe.category_id)
+  const categories = attributes?.categories.filter((c) => recipe.category_ids.includes(c.id)) ?? []
   const moment = attributes ? attributeName(attributes.moments, recipe.moment_id) : null
   const time = attributes ? attributeName(attributes.times, recipe.time_id) : null
   const difficulty = attributes ? attributeName(attributes.difficulties, recipe.difficulty_id) : null
@@ -82,9 +108,36 @@ export default function RecipeDetail() {
       )}
 
       <div className="space-y-2">
-        <h1 className="text-xl font-semibold">{recipe.title}</h1>
+        <div className="flex flex-wrap items-center gap-3">
+          <h1 className="text-xl font-semibold">{recipe.title}</h1>
+          <div className="flex items-center gap-2 rounded-lg border border-edge bg-surface px-2 py-1">
+            <button
+              onClick={() => adjustServings(-1)}
+              aria-label="Minder personen"
+              className="flex size-6 items-center justify-center rounded-md text-ink-2 transition-colors hover:bg-raised disabled:opacity-40"
+              disabled={(recipe.servings ?? 1) <= 1}
+            >
+              −
+            </button>
+            <span className="min-w-20 text-center text-sm tabular-nums text-ink-2">
+              {recipe.servings ?? 1} {(recipe.servings ?? 1) === 1 ? 'persoon' : 'personen'}
+            </span>
+            <button
+              onClick={() => adjustServings(1)}
+              aria-label="Meer personen"
+              className="flex size-6 items-center justify-center rounded-md text-ink-2 transition-colors hover:bg-raised"
+            >
+              +
+            </button>
+          </div>
+          {servingsError && <span className="text-sm text-crit">{servingsError}</span>}
+        </div>
         <div className="flex flex-wrap gap-1.5">
-          {category && <ColorPill color={category.color}>{category.name}</ColorPill>}
+          {categories.map((category) => (
+            <ColorPill key={category.id} color={category.color}>
+              {category.name}
+            </ColorPill>
+          ))}
           {moment && <Pill>{moment}</Pill>}
           {time && <Pill>{time}</Pill>}
           {difficulty && <Pill>{difficulty}</Pill>}
@@ -109,7 +162,7 @@ export default function RecipeDetail() {
           <ul className="divide-y divide-line">
             {recipe.ingredients.map((item) => (
               <li key={item.id} className="flex items-baseline gap-2 px-5 py-2.5 text-sm">
-                <span className="w-24 shrink-0 text-right tabular-nums text-ink-2">
+                <span className="w-24 shrink-0 text-left tabular-nums text-ink-2">
                   {[item.quantity, item.unit].filter(Boolean).join(' ')}
                 </span>
                 <span className="min-w-0 flex-1">
@@ -130,9 +183,20 @@ export default function RecipeDetail() {
       {recipe.description && (
         <section className="rounded-2xl border border-edge bg-surface">
           <h2 className="border-b border-line px-5 py-3 text-sm font-medium">Bereiding</h2>
-          <p className="whitespace-pre-line px-5 py-4 text-sm leading-relaxed text-ink-2">
-            {recipe.description}
-          </p>
+          <ol className="space-y-3 px-5 py-4">
+            {recipe.description
+              .split('\n')
+              .map((line) => line.trim())
+              .filter(Boolean)
+              .map((step, index) => (
+                <li key={index} className="flex gap-3 text-sm leading-relaxed text-ink-2">
+                  <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-accent/15 text-xs font-medium text-accent tabular-nums">
+                    {index + 1}
+                  </span>
+                  <span className="pt-0.5">{step}</span>
+                </li>
+              ))}
+          </ol>
         </section>
       )}
     </div>

@@ -32,6 +32,25 @@ def test_lijst_gesorteerd_met_recipe_count(logged_in: TestClient, db: Session) -
     assert data[0]["recipe_count"] == 1
     assert data[1]["recipe_count"] == 0
     assert data[1]["pantry_type"] == "always_home"
+    assert data[0]["in_stock"] is True  # default bij aanmaak
+
+
+def test_patch_in_stock(logged_in: TestClient, db: Session, ui_id: int) -> None:
+    resp = logged_in.patch(f"{INGREDIENTS_URL}/{ui_id}", json={"in_stock": False})
+    assert resp.status_code == 200
+    assert resp.json()["in_stock"] is False
+    db.expire_all()
+    assert db.get(Ingredient, ui_id).in_stock is False
+
+    resp = logged_in.patch(f"{INGREDIENTS_URL}/{ui_id}", json={"in_stock": True})
+    assert resp.status_code == 200
+    assert resp.json()["in_stock"] is True
+
+
+def test_patch_in_stock_null_geeft_422(logged_in: TestClient, ui_id: int) -> None:
+    assert (
+        logged_in.patch(f"{INGREDIENTS_URL}/{ui_id}", json={"in_stock": None}).status_code == 422
+    )
 
 
 def test_patch_pantry_type(logged_in: TestClient, db: Session, ui_id: int) -> None:

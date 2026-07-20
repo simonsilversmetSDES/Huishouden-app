@@ -5,7 +5,7 @@ import { useRef, useState, type FormEvent } from 'react'
 import { ApiError } from '../api/client'
 import { photoUrl } from './api'
 import { readImageFile, type UploadedImage } from './imageUpload'
-import type { Attribute, IngredientIn, RecipePayload } from './types'
+import type { Attribute, ColorAttribute, IngredientIn, RecipePayload } from './types'
 import { inputClass, primaryButtonClass, secondaryButtonClass } from './ui'
 import type { Attributes } from './useAttributes'
 
@@ -14,9 +14,10 @@ export interface FormInitial {
   description: string
   source_url: string
   moment_id: number | null
-  category_id: number | null
+  category_ids: number[]
   time_id: number | null
   difficulty_id: number | null
+  servings: number | null
   ingredients: IngredientIn[]
 }
 
@@ -25,9 +26,10 @@ export const EMPTY_INITIAL: FormInitial = {
   description: '',
   source_url: '',
   moment_id: null,
-  category_id: null,
+  category_ids: [],
   time_id: null,
   difficulty_id: null,
+  servings: null,
   ingredients: [],
 }
 
@@ -74,9 +76,10 @@ export default function RecipeForm({
   const [description, setDescription] = useState(initial.description)
   const [sourceUrl, setSourceUrl] = useState(initial.source_url)
   const [momentId, setMomentId] = useState(initial.moment_id)
-  const [categoryId, setCategoryId] = useState(initial.category_id)
+  const [categoryIds, setCategoryIds] = useState(initial.category_ids)
   const [timeId, setTimeId] = useState(initial.time_id)
   const [difficultyId, setDifficultyId] = useState(initial.difficulty_id)
+  const [servings, setServings] = useState(initial.servings)
   const [rows, setRows] = useState<IngredientRowState[]>(toRowState(initial.ingredients))
   const [photo, setPhoto] = useState<PhotoState>(initialPhoto)
   const [saving, setSaving] = useState(false)
@@ -115,9 +118,10 @@ export default function RecipeForm({
       photo_base64: photo.kind === 'upload' ? photo.image.base64 : null,
       photo_media_type: photo.kind === 'upload' ? photo.image.mediaType : null,
       moment_id: momentId,
-      category_id: categoryId,
+      category_ids: categoryIds,
       time_id: timeId,
       difficulty_id: difficultyId,
+      servings,
       ingredients: rows
         .filter((row) => row.name.trim() !== '')
         .map((row) => ({
@@ -139,28 +143,44 @@ export default function RecipeForm({
   return (
     <form onSubmit={submit} className="space-y-4">
       <section className="space-y-3 rounded-2xl border border-edge bg-surface p-5">
-        <label className="block">
-          <span className="mb-1 block text-xs uppercase tracking-wide text-ink-3">Titel</span>
-          <input
-            type="text"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            className={inputClass}
-          />
-        </label>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <label className="block sm:col-span-2">
+            <span className="mb-1 block text-xs uppercase tracking-wide text-ink-3">Titel</span>
+            <input
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              className={inputClass}
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs uppercase tracking-wide text-ink-3">
+              Aantal personen
+            </span>
+            <input
+              type="number"
+              min={1}
+              value={servings ?? ''}
+              onChange={(e) =>
+                setServings(e.target.value === '' ? null : Math.max(1, Number(e.target.value)))
+              }
+              className={`${inputClass} tabular-nums`}
+            />
+          </label>
+        </div>
 
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <CategoryMultiSelect
+          options={attributes.categories}
+          value={categoryIds}
+          onChange={setCategoryIds}
+        />
+
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <AttributeSelect
             label="Moment"
             options={attributes.moments}
             value={momentId}
             onChange={setMomentId}
-          />
-          <AttributeSelect
-            label="Categorie"
-            options={attributes.categories}
-            value={categoryId}
-            onChange={setCategoryId}
           />
           <AttributeSelect
             label="Tijd"
@@ -274,14 +294,14 @@ export default function RecipeForm({
         {rows.length === 0 && <p className="text-sm text-ink-3">Nog geen ingrediënten.</p>}
         <div className="space-y-2">
           {rows.map((row, index) => (
-            <div key={index} className="flex flex-wrap items-center gap-2">
+            <div key={index} className="flex items-center gap-1.5 sm:gap-2">
               <input
                 type="text"
                 value={row.quantity}
                 onChange={(e) => updateRow(index, { quantity: e.target.value })}
                 placeholder="Hoev."
                 aria-label="Hoeveelheid"
-                className={`${inputClass} w-20 text-right tabular-nums`}
+                className={`${inputClass} !w-14 shrink-0 px-2 text-right tabular-nums sm:!w-16`}
               />
               <input
                 type="text"
@@ -289,7 +309,7 @@ export default function RecipeForm({
                 onChange={(e) => updateRow(index, { unit: e.target.value })}
                 placeholder="Eenheid"
                 aria-label="Eenheid"
-                className={`${inputClass} w-24`}
+                className={`${inputClass} !w-16 shrink-0 px-2 sm:!w-20`}
               />
               <input
                 type="text"
@@ -297,21 +317,13 @@ export default function RecipeForm({
                 onChange={(e) => updateRow(index, { name: e.target.value })}
                 placeholder="Ingrediënt"
                 aria-label="Ingrediënt"
-                className={`${inputClass} min-w-36 flex-1`}
-              />
-              <input
-                type="text"
-                value={row.note}
-                onChange={(e) => updateRow(index, { note: e.target.value })}
-                placeholder="Notitie"
-                aria-label="Notitie"
-                className={`${inputClass} w-full sm:w-40`}
+                className={`${inputClass} min-w-0 flex-1`}
               />
               <button
                 type="button"
                 onClick={() => setRows((prev) => prev.filter((_, i) => i !== index))}
                 aria-label="Ingrediënt verwijderen"
-                className="rounded-lg px-2 py-2 text-sm text-ink-3 transition-colors hover:bg-crit/10 hover:text-crit"
+                className="shrink-0 rounded-lg px-2 py-2 text-sm text-ink-3 transition-colors hover:bg-crit/10 hover:text-crit"
               >
                 ✕
               </button>
@@ -350,6 +362,44 @@ export default function RecipeForm({
         {error && <p className="text-sm text-crit">{error}</p>}
       </div>
     </form>
+  )
+}
+
+function CategoryMultiSelect({
+  options,
+  value,
+  onChange,
+}: {
+  options: ColorAttribute[]
+  value: number[]
+  onChange: (ids: number[]) => void
+}) {
+  function toggle(id: number) {
+    onChange(value.includes(id) ? value.filter((v) => v !== id) : [...value, id])
+  }
+  return (
+    <div className="block">
+      <span className="mb-1 block text-xs uppercase tracking-wide text-ink-3">Categorieën</span>
+      <div className="flex flex-wrap gap-1.5">
+        {options.length === 0 && <p className="text-sm text-ink-3">Nog geen categorieën.</p>}
+        {options.map((option) => {
+          const active = value.includes(option.id)
+          return (
+            <button
+              key={option.id}
+              type="button"
+              onClick={() => toggle(option.id)}
+              style={active ? { backgroundColor: option.color, color: '#fff' } : undefined}
+              className={`rounded-full px-3 py-1 text-sm transition-colors pointer-coarse:py-1.5 ${
+                active ? '' : 'bg-raised text-ink-2 hover:bg-page'
+              }`}
+            >
+              {option.name}
+            </button>
+          )
+        })}
+      </div>
+    </div>
   )
 }
 

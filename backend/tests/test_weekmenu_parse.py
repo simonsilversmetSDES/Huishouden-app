@@ -99,6 +99,66 @@ def test_parser1_slaat_niets_op(
     assert db.query(Ingredient).count() == 0
 
 
+def _build_nextjs_flight_html(base_html: str, recipe_parts: list[dict]) -> str:
+    """Bouwt een Next.js flight-payload (``self.__next_f.push``) zoals VRT-sites die
+    versturen: een dehydrated React Query-cache met het volledige ``recipeParts``.
+    """
+    body = json.dumps(
+        {
+            "state": {
+                "queries": [
+                    {"state": {"data": {"data": {"recipe": {
+                        "recipeParts": recipe_parts,
+                        "ingredients": [],
+                    }}}}}
+                ]
+            }
+        }
+    )
+    chunk = "15:" + body
+    encoded = json.dumps(chunk)
+    return base_html + f"<script>self.__next_f.push([1,{encoded}])</script>"
+
+
+NEXTJS_FLIGHT_HTML = _build_nextjs_flight_html(
+    SCHEMA_ORG_HTML,
+    [
+        {
+            "title": "Voor de saus",
+            "instructions": [
+                {"description": "Fruit de ui en de look."},
+                {"description": "Voeg de tomaten toe en laat 20 minuten sudderen."},
+            ],
+        },
+        {
+            "title": "Voor de pasta",
+            "instructions": [{"description": "Kook de pasta beetgaar volgens de verpakking."}],
+        },
+    ],
+)
+
+
+def test_parser1_next_flight_payload_vult_afgekapte_schema_org_tekst_aan(
+    logged_in: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regressietest: VRT Dagelijkse Kost zet in schema.org enkel de eerste stappen;
+    het volledige stappenplan zit in een Next.js flight-payload verderop in de pagina."""
+    monkeypatch.setattr(parsing, "fetch_url", _fake_fetch(NEXTJS_FLIGHT_HTML))
+    resp = logged_in.post(PARSE_URL, json={"url": "https://example.com/recept"})
+    assert resp.status_code == 200
+    description = resp.json()["description"]
+    assert "Voor de saus:" in description
+    assert "Voor de pasta:" in description
+    assert "Kook de pasta beetgaar volgens de verpakking." in description
+    # De korte schema.org-tekst ("Fruit de ui.") is vervangen, niet enkel aangevuld.
+    assert "Voeg het gehakt toe." not in description
+
+
+def test_extract_nextjs_flight_description_geeft_none_zonder_match() -> None:
+    assert parsing._extract_nextjs_flight_description(SCHEMA_ORG_HTML) is None
+    assert parsing._extract_nextjs_flight_description("<html>niets hier</html>") is None
+
+
 def test_parser1_dode_url_geeft_nette_fout(
     logged_in: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:

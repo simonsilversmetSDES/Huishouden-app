@@ -5,13 +5,14 @@ import { useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { ApiError } from '../api/client'
 import { createRecipe, parseRecipe } from './api'
+import { readDocumentFile } from './documentUpload'
 import { readImageFile, type UploadedImage } from './imageUpload'
 import RecipeForm, { EMPTY_INITIAL, type FormInitial, type PhotoState } from './RecipeForm'
 import type { ParsedRecipe, RecipePayload } from './types'
 import { ErrorCard, inputClass, primaryButtonClass } from './ui'
 import { useAttributes } from './useAttributes'
 
-type Source = 'url' | 'image' | 'manual'
+type Source = 'url' | 'image' | 'document' | 'manual'
 
 export default function RecipeNew() {
   const navigate = useNavigate()
@@ -24,6 +25,7 @@ export default function RecipeNew() {
   const [initial, setInitial] = useState<FormInitial | null>(null)
   const [initialPhoto, setInitialPhoto] = useState<PhotoState>({ kind: 'none' })
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const documentInputRef = useRef<HTMLInputElement>(null)
 
   function toInitial(parsed: ParsedRecipe): FormInitial {
     return {
@@ -31,9 +33,10 @@ export default function RecipeNew() {
       description: parsed.description,
       source_url: parsed.source_url ?? '',
       moment_id: null,
-      category_id: null,
+      category_ids: [],
       time_id: null,
       difficulty_id: null,
+      servings: parsed.servings,
       ingredients: parsed.ingredients.map((item) => ({
         name: item.name,
         quantity: item.quantity,
@@ -88,6 +91,32 @@ export default function RecipeNew() {
     }
   }
 
+  async function parseFromDocument(file: File | undefined) {
+    if (!file) return
+    setParseError(null)
+    setParsing(true)
+    try {
+      const document = await readDocumentFile(file)
+      const parsed = await parseRecipe({
+        document_base64: document.base64,
+        document_media_type: document.mediaType,
+      })
+      setInitial(toInitial(parsed))
+      // Een Word/PDF-bestand levert geen bruikbare foto.
+      setInitialPhoto({ kind: 'none' })
+    } catch (err) {
+      setParseError(
+        err instanceof ApiError
+          ? err.message
+          : err instanceof Error
+            ? err.message
+            : 'Document parsen mislukt',
+      )
+    } finally {
+      setParsing(false)
+    }
+  }
+
   async function save(payload: RecipePayload) {
     const recipe = await createRecipe(payload)
     navigate(`/weekmenu/recepten/${recipe.id}`)
@@ -134,6 +163,7 @@ export default function RecipeNew() {
             [
               ['url', 'Van een website'],
               ['image', 'Van een afbeelding'],
+              ['document', 'Van Word/PDF'],
               ['manual', 'Handmatig'],
             ] as [Source, string][]
           ).map(([key, label]) => (
@@ -199,6 +229,32 @@ export default function RecipeNew() {
               className="hidden"
               onChange={(e) => {
                 void parseFromImage(e.target.files?.[0])
+                e.target.value = ''
+              }}
+            />
+          </div>
+        )}
+
+        {source === 'document' && (
+          <div className="space-y-3">
+            <p className="text-sm text-ink-2">
+              Upload een Word- (.docx) of PDF-bestand met een recept; de tekst wordt
+              automatisch gelezen. Voeg zelf nog een foto toe indien gewenst.
+            </p>
+            <button
+              onClick={() => documentInputRef.current?.click()}
+              disabled={parsing}
+              className={primaryButtonClass}
+            >
+              {parsing ? 'Bezig met lezen…' : 'Kies een bestand…'}
+            </button>
+            <input
+              ref={documentInputRef}
+              type="file"
+              accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+              className="hidden"
+              onChange={(e) => {
+                void parseFromDocument(e.target.files?.[0])
                 e.target.value = ''
               }}
             />

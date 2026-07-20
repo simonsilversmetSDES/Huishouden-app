@@ -4,7 +4,13 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.weekmenu.models import Ingredient, Recipe, ShoppingCategory, ShoppingListItem
+from app.weekmenu.models import (
+    Ingredient,
+    Recipe,
+    RecipeCategory,
+    ShoppingCategory,
+    ShoppingListItem,
+)
 from app.weekmenu.seed import seed_weekmenu
 
 BASE = "/api/weekmenu"
@@ -129,7 +135,6 @@ def test_delete_404(logged_in: TestClient, seeded: Session) -> None:
     ("path", "fk_field"),
     [
         ("moments", "moment_id"),
-        ("categories", "category_id"),
         ("times", "time_id"),
         ("difficulties", "difficulty_id"),
     ],
@@ -141,6 +146,20 @@ def test_delete_attribuut_in_gebruik_door_recept_geeft_409(
     seeded.add(Recipe(title="Testrecept", **{fk_field: row["id"]}))
     seeded.commit()
     resp = logged_in.delete(f"{BASE}/{path}/{row['id']}")
+    assert resp.status_code == 409
+    assert resp.json()["detail"]["code"] == "in_use"
+
+
+def test_delete_categorie_in_gebruik_door_recept_geeft_409(
+    logged_in: TestClient, seeded: Session
+) -> None:
+    """Categorieën zijn many-to-many — kunnen niet via een simpele FK-kwarg gekoppeld
+    worden zoals de andere attributen hierboven."""
+    row = logged_in.get(f"{BASE}/categories").json()[0]
+    category = seeded.get(RecipeCategory, row["id"])
+    seeded.add(Recipe(title="Testrecept", categories=[category]))
+    seeded.commit()
+    resp = logged_in.delete(f"{BASE}/categories/{row['id']}")
     assert resp.status_code == 409
     assert resp.json()["detail"]["code"] == "in_use"
 

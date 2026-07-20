@@ -17,6 +17,13 @@ from app.weekmenu.models import PantryType
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
 ALLOWED_IMAGE_MEDIA_TYPES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
 
+# Word (.docx) en PDF; ruimer dan afbeeldingen omdat een receptenboek-hoofdstuk groter kan zijn.
+MAX_DOCUMENT_BYTES = 15 * 1024 * 1024
+ALLOWED_DOCUMENT_MEDIA_TYPES = {
+    "application/pdf",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+}
+
 
 def _validate_image(image_base64: str, media_type: str | None) -> None:
     """Gedeelde check voor base64-afbeeldingen (parse-request én recept-foto-upload)."""
@@ -29,6 +36,19 @@ def _validate_image(image_base64: str, media_type: str | None) -> None:
         raise ValueError("De afbeelding is geen geldige base64.") from exc
     if len(decoded) > MAX_IMAGE_BYTES:
         raise ValueError("Afbeelding is te groot (max 5 MB).")
+
+
+def _validate_document(document_base64: str, media_type: str | None) -> None:
+    """Gedeelde check voor base64-documenten (parse-request, Word/PDF)."""
+    if media_type not in ALLOWED_DOCUMENT_MEDIA_TYPES:
+        allowed = ", ".join(sorted(ALLOWED_DOCUMENT_MEDIA_TYPES))
+        raise ValueError(f"media type moet één van {allowed} zijn.")
+    try:
+        decoded = base64.b64decode(document_base64, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise ValueError("Het document is geen geldige base64.") from exc
+    if len(decoded) > MAX_DOCUMENT_BYTES:
+        raise ValueError("Document is te groot (max 15 MB).")
 
 
 class ParsedIngredient(BaseModel):
@@ -44,22 +64,30 @@ class ParsedRecipe(BaseModel):
     description: str = ""  # bereidingsstappen als platte tekst
     photo_url: str | None = None  # externe URL; download gebeurt pas bij opslaan
     source_url: str | None = None
+    servings: int | None = None
     ingredients: list[ParsedIngredient] = []
 
 
 class ParseRequest(BaseModel):
-    """Eén van beide: een URL, óf een afbeelding (base64 + media type)."""
+    """Precies één van drie: een URL, een afbeelding, óf een document (Word/PDF)."""
 
     url: str | None = None
     image_base64: str | None = None
     image_media_type: str | None = None
+    document_base64: str | None = None
+    document_media_type: str | None = None
 
     @model_validator(mode="after")
     def _exactly_one_source(self) -> "ParseRequest":
-        if bool(self.url) == bool(self.image_base64):
-            raise ValueError("Geef óf een url óf een afbeelding op (niet allebei, niet geen).")
+        sources = [bool(self.url), bool(self.image_base64), bool(self.document_base64)]
+        if sum(sources) != 1:
+            raise ValueError(
+                "Geef precies één bron op: url, afbeelding óf document (niet meerdere, niet geen)."
+            )
         if self.image_base64:
             _validate_image(self.image_base64, self.image_media_type)
+        if self.document_base64:
+            _validate_document(self.document_base64, self.document_media_type)
         return self
 
 
@@ -88,9 +116,10 @@ class RecipeCreate(BaseModel):
     photo_base64: str | None = None
     photo_media_type: str | None = None
     moment_id: int | None = None
-    category_id: int | None = None
+    category_ids: list[int] = []
     time_id: int | None = None
     difficulty_id: int | None = None
+    servings: int | None = None
     ingredients: list[RecipeIngredientIn] = []
 
     @model_validator(mode="after")
@@ -101,6 +130,8 @@ class RecipeCreate(BaseModel):
             if self.photo_url:
                 raise ValueError("Geef óf photo_url óf photo_base64 op, niet allebei.")
             _validate_image(self.photo_base64, self.photo_media_type)
+        if self.servings is not None and self.servings <= 0:
+            raise ValueError("Aantal personen moet positief zijn.")
         return self
 
 
@@ -114,6 +145,18 @@ class RecipeUpdate(RecipeCreate):
     def _no_new_photo_with_remove(self) -> "RecipeUpdate":
         if self.remove_photo and (self.photo_url or self.photo_base64):
             raise ValueError("remove_photo kan niet samen met een nieuwe foto.")
+        return self
+
+
+class RecipeServingsPatch(BaseModel):
+    """Lichte update voor enkel het aantal personen (stepper op de receptpagina)."""
+
+    servings: int
+
+    @model_validator(mode="after")
+    def _positive(self) -> "RecipeServingsPatch":
+        if self.servings <= 0:
+            raise ValueError("Aantal personen moet positief zijn.")
         return self
 
 
@@ -138,9 +181,10 @@ class RecipeOut(BaseModel):
     photo_path: str | None
     source_url: str | None
     moment_id: int | None
-    category_id: int | None
+    category_ids: list[int]
     time_id: int | None
     difficulty_id: int | None
+    servings: int | None
     ingredients: list[RecipeIngredientOut]
 
 
@@ -153,9 +197,10 @@ class RecipeListOut(BaseModel):
     title: str
     photo_path: str | None
     moment_id: int | None
-    category_id: int | None
+    category_ids: list[int]
     time_id: int | None
     difficulty_id: int | None
+    servings: int | None
     created_at: datetime
 
 
@@ -203,6 +248,7 @@ class IngredientOut(BaseModel):
     name: str
     pantry_type: PantryType
     shopping_category_id: int | None
+    in_stock: bool
     recipe_count: int
 
 
@@ -213,6 +259,7 @@ class IngredientPatch(BaseModel):
     name: str | None = None
     pantry_type: PantryType | None = None
     shopping_category_id: int | None = None
+    in_stock: bool | None = None
 
     @model_validator(mode="after")
     def _no_explicit_null(self) -> "IngredientPatch":
@@ -220,6 +267,8 @@ class IngredientPatch(BaseModel):
             raise ValueError("Naam mag niet leeg zijn.")
         if "pantry_type" in self.model_fields_set and self.pantry_type is None:
             raise ValueError("pantry_type mag niet null zijn.")
+        if "in_stock" in self.model_fields_set and self.in_stock is None:
+            raise ValueError("in_stock mag niet null zijn.")
         return self
 
 
@@ -234,6 +283,7 @@ class WeekPlanDayIn(BaseModel):
     recipe_id: int | None = None
     free_text: str | None = None
     checked: bool = False
+    servings: int | None = None
 
     @model_validator(mode="after")
     def _not_both(self) -> "WeekPlanDayIn":
@@ -248,6 +298,12 @@ class WeekPlanDayIn(BaseModel):
             raise ValueError("Een lege dag kan niet afgevinkt worden.")
         return self
 
+    @model_validator(mode="after")
+    def _servings_positive(self) -> "WeekPlanDayIn":
+        if self.servings is not None and self.servings <= 0:
+            raise ValueError("Aantal personen moet positief zijn.")
+        return self
+
 
 class WeekPlanDayOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -258,3 +314,51 @@ class WeekPlanDayOut(BaseModel):
     recipe_photo_path: str | None
     free_text: str | None
     checked: bool
+    servings: int | None
+
+
+# --- Boodschappenlijst (Fase 5) ---
+
+
+class ShoppingListItemOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    category_id: int
+    checked: bool
+    manually_added: bool
+    quantity: str | None
+    ingredient_id: int | None
+    # Enkel gezet voor automatische items (None voor handmatige); relevant voor de
+    # "op voorraad"-toggle in de Voorraadkast-sectie, ongeacht winkelcategorie.
+    in_stock: bool | None
+
+
+class ShoppingListItemCreate(BaseModel):
+    """Handmatig item toevoegen; recipe_id/ingredient_id blijven leeg (geen MENU-label)."""
+
+    name: str
+    category_id: int
+    quantity: str | None = None
+
+    @model_validator(mode="after")
+    def _name_not_blank(self) -> "ShoppingListItemCreate":
+        if not self.name.strip():
+            raise ValueError("Naam mag niet leeg zijn.")
+        return self
+
+
+class ShoppingListItemPatch(BaseModel):
+    checked: bool
+
+
+class PantryCheckItemOut(BaseModel):
+    """Alle pantry-ingrediënten die deze week ergens in een gepland recept
+    zitten, ongeacht in_stock — dit is de volledige "Nodig uit
+    voorraadkast"-checklist, niet enkel wat al als 'nodig' aangevinkt staat."""
+
+    ingredient_id: int
+    name: str
+    quantity: str | None
+    in_stock: bool

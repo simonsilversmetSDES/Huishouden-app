@@ -5,10 +5,13 @@ import type {
   Attribute,
   IngredientPatch,
   IngredientRow,
+  PantryCheckItem,
   ParsedRecipe,
   Recipe,
   RecipeListItem,
   RecipePayload,
+  ShoppingListItemPayload,
+  ShoppingListItemRow,
   WeekPlanDay,
   WeekPlanDayPayload,
 } from './types'
@@ -18,6 +21,7 @@ const BASE = '/api/weekmenu'
 export type ParseRequest =
   | { url: string }
   | { image_base64: string; image_media_type: string }
+  | { document_base64: string; document_media_type: string }
 
 export const parseRecipe = (body: ParseRequest) =>
   api<ParsedRecipe>(`${BASE}/recipes/parse`, { method: 'POST', body: JSON.stringify(body) })
@@ -34,6 +38,12 @@ export const updateRecipe = (id: number, payload: RecipePayload) =>
 
 export const deleteRecipe = (id: number) =>
   api<void>(`${BASE}/recipes/${id}`, { method: 'DELETE' })
+
+export const patchRecipeServings = (id: number, servings: number) =>
+  api<Recipe>(`${BASE}/recipes/${id}/servings`, {
+    method: 'PATCH',
+    body: JSON.stringify({ servings }),
+  })
 
 /** Foto's worden auth-beveiligd geserveerd; de sessiecookie gaat vanzelf mee. */
 export const photoUrl = (filename: string) => `${BASE}/photos/${filename}`
@@ -73,3 +83,24 @@ export const getWeek = (start: string) =>
 
 export const putWeekDay = (date: string, payload: WeekPlanDayPayload) =>
   api<WeekPlanDay>(`${BASE}/week/${date}`, { method: 'PUT', body: JSON.stringify(payload) })
+
+export const getShoppingList = (start: string) =>
+  api<ShoppingListItemRow[]>(`${BASE}/shopping-list?start=${start}`)
+
+export const addShoppingListItem = (payload: ShoppingListItemPayload) =>
+  api<ShoppingListItemRow>(`${BASE}/shopping-list/items`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+
+export const patchShoppingListItem = (id: number, checked: boolean) =>
+  api<ShoppingListItemRow>(`${BASE}/shopping-list/items/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ checked }),
+  })
+
+export const deleteShoppingListItem = (id: number) =>
+  api<void>(`${BASE}/shopping-list/items/${id}`, { method: 'DELETE' })
+
+export const getPantryCheck = (start: string) =>
+  api<PantryCheckItem[]>(`${BASE}/pantry-check?start=${start}`)

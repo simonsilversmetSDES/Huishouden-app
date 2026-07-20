@@ -15,7 +15,7 @@ import httpx
 from app.weekmenu.errors import WeekmenuError
 
 FETCH_TIMEOUT_SECONDS = 15.0
-MAX_REDIRECTS = 5
+MAX_REDIRECTS = 10
 MAX_HTML_BYTES = 2 * 1024 * 1024
 MAX_PHOTO_BYTES = 10 * 1024 * 1024
 
@@ -73,46 +73,50 @@ def fetch_url(url: str, max_bytes: int) -> FetchResult:
 
     Timeout en groottelimiet zorgen dat een trage of te grote URL de backend niet
     laat hangen; de response wordt gestreamd en afgebroken zodra ``max_bytes``
-    overschreden wordt.
+    overschreden wordt. Eén client voor de hele redirect-keten (cookies blijven
+    dus bewaard tussen stappen) — sommige sites (bv. Roularta-titels als
+    Libelle Lekker) doen een silent-SSO-redirect die zonder sessiecookie
+    faalt en op een loginpagina eindigt in plaats van het artikel.
     """
     current = url
-    for _ in range(MAX_REDIRECTS + 1):
-        validate_external_url(current)
-        try:
-            with httpx.Client(
-                follow_redirects=False,
-                timeout=FETCH_TIMEOUT_SECONDS,
-                headers={
-                    "User-Agent": (
-                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
-                    ),
-                    "Accept-Language": "nl-BE,nl;q=0.9,en;q=0.6",
-                },
-            ) as client, client.stream("GET", current) as response:
-                if response.is_redirect:
-                    location = response.headers.get("location")
-                    if not location:
-                        raise _fetch_failed("De pagina stuurde een kapotte redirect.")
-                    current = urljoin(current, location)
-                    continue
-                if response.status_code >= 400:
-                    raise _fetch_failed(
-                        f"De pagina kon niet opgehaald worden (HTTP {response.status_code})."
+    with httpx.Client(
+        follow_redirects=False,
+        timeout=FETCH_TIMEOUT_SECONDS,
+        headers={
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
+            ),
+            "Accept-Language": "nl-BE,nl;q=0.9,en;q=0.6",
+        },
+    ) as client:
+        for _ in range(MAX_REDIRECTS + 1):
+            validate_external_url(current)
+            try:
+                with client.stream("GET", current) as response:
+                    if response.is_redirect:
+                        location = response.headers.get("location")
+                        if not location:
+                            raise _fetch_failed("De pagina stuurde een kapotte redirect.")
+                        current = urljoin(current, location)
+                        continue
+                    if response.status_code >= 400:
+                        raise _fetch_failed(
+                            f"De pagina kon niet opgehaald worden (HTTP {response.status_code})."
+                        )
+                    chunks: list[bytes] = []
+                    total = 0
+                    for chunk in response.iter_bytes():
+                        total += len(chunk)
+                        if total > max_bytes:
+                            raise _fetch_failed("De pagina of afbeelding is te groot.")
+                        chunks.append(chunk)
+                    content_type = response.headers.get("content-type", "")
+                    return FetchResult(
+                        content=b"".join(chunks),
+                        content_type=content_type.split(";")[0].strip().lower(),
+                        final_url=current,
                     )
-                chunks: list[bytes] = []
-                total = 0
-                for chunk in response.iter_bytes():
-                    total += len(chunk)
-                    if total > max_bytes:
-                        raise _fetch_failed("De pagina of afbeelding is te groot.")
-                    chunks.append(chunk)
-                content_type = response.headers.get("content-type", "")
-                return FetchResult(
-                    content=b"".join(chunks),
-                    content_type=content_type.split(";")[0].strip().lower(),
-                    final_url=current,
-                )
-        except httpx.HTTPError as exc:
-            raise _fetch_failed("De pagina kon niet opgehaald worden.") from exc
+            except httpx.HTTPError as exc:
+                raise _fetch_failed("De pagina kon niet opgehaald worden.") from exc
     raise _fetch_failed("Te veel redirects.")

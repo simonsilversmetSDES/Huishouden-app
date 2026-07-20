@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Response
-from sqlalchemy import func, select
+from sqlalchemy import Table, func, select
 from sqlalchemy.orm import InstrumentedAttribute, Session
 
 from app.auth.deps import CurrentUser
@@ -24,6 +24,7 @@ from app.weekmenu.models import (
     RecipeTime,
     ShoppingCategory,
     ShoppingListItem,
+    recipe_category_links,
 )
 from app.weekmenu.schemas import AttributeIn, AttributeOut, ColorAttributeIn, ColorAttributeOut
 
@@ -38,13 +39,17 @@ class _Resource:
     model: type
     has_color: bool
     # Waar de FK's naartoe wijzen die DELETE moeten blokkeren, + NL-omschrijving.
-    usage: tuple[tuple[type, str], ...]
+    # Meestal een ORM-model + kolomnaam; voor many-to-many (categorieën) is het de
+    # raw associatietabel, want die heeft geen gemapte klasse.
+    usage: tuple[tuple[type | Table, str], ...]
     usage_noun: str
 
 
 _RESOURCES = (
     _Resource("/moments", RecipeMoment, False, ((Recipe, "moment_id"),), "recept(en)"),
-    _Resource("/categories", RecipeCategory, True, ((Recipe, "category_id"),), "recept(en)"),
+    _Resource(
+        "/categories", RecipeCategory, True, ((recipe_category_links, "category_id"),), "recept(en)"
+    ),
     _Resource("/times", RecipeTime, False, ((Recipe, "time_id"),), "recept(en)"),
     _Resource("/difficulties", RecipeDifficulty, False, ((Recipe, "difficulty_id"),), "recept(en)"),
     _Resource(
@@ -75,7 +80,9 @@ def _get_or_404(db: Session, model: type, item_id: int):
 def _usage_count(db: Session, resource: _Resource, item_id: int) -> int:
     total = 0
     for model, column_name in resource.usage:
-        column: InstrumentedAttribute = getattr(model, column_name)
+        column: InstrumentedAttribute = (
+            model.c[column_name] if isinstance(model, Table) else getattr(model, column_name)
+        )
         total += db.scalar(select(func.count()).select_from(model).where(column == item_id)) or 0
     return total
 

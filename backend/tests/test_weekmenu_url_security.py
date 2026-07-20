@@ -153,6 +153,39 @@ def test_http_fout_geeft_fetch_failed(fake_http: type[_FakeClient]) -> None:
     assert exc_info.value.code == "fetch_failed"
 
 
+def test_fetch_gebruikt_een_client_voor_de_hele_redirect_keten(
+    fake_http: type[_FakeClient], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regressietest: één httpx.Client (en dus cookiejar) voor de volledige keten.
+
+    Sommige sites (bv. Roularta-titels als Libelle Lekker) doen een silent-SSO-
+    redirect die op een sessiecookie steunt; een nieuwe Client per hop gooit die
+    cookie weg en laat de flow eindigen op een loginpagina i.p.v. het artikel.
+    """
+    instantiations: list[int] = []
+    original_init = _FakeClient.__init__
+
+    def counting_init(self, *args, **kwargs):
+        instantiations.append(1)
+        original_init(self, *args, **kwargs)
+
+    monkeypatch.setattr(fake_http, "__init__", counting_init)
+    fake_http.responses = {
+        "https://example.com/stap1": _FakeResponse(
+            302, {"location": "https://example.com/stap2"}
+        ),
+        "https://example.com/stap2": _FakeResponse(
+            302, {"location": "https://example.com/stap3"}
+        ),
+        "https://example.com/stap3": _FakeResponse(
+            200, {"content-type": "text/html"}, b"<html>recept</html>"
+        ),
+    }
+    result = fetch_url("https://example.com/stap1", max_bytes=1024)
+    assert result.final_url == "https://example.com/stap3"
+    assert len(instantiations) == 1
+
+
 def test_te_veel_redirects_geweigerd(fake_http: type[_FakeClient]) -> None:
     fake_http.responses = {
         "https://example.com/loop": _FakeResponse(302, {"location": "https://example.com/loop"}),

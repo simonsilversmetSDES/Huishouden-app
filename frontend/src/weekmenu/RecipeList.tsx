@@ -3,11 +3,12 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { IconPlus, IconUtensils } from '../components/icons'
+import { IconCalendar, IconPlus, IconUtensils } from '../components/icons'
 import { listRecipes, photoUrl } from './api'
 import type { RecipeListItem } from './types'
 import { ColorPill, ErrorCard, inputClass, Pill } from './ui'
 import { attributeName, useAttributes } from './useAttributes'
+import WeekSlotPickerModal from './WeekSlotPickerModal'
 
 export default function RecipeList() {
   const { attributes } = useAttributes()
@@ -16,6 +17,7 @@ export default function RecipeList() {
   const [search, setSearch] = useState('')
   const [categoryId, setCategoryId] = useState<number | null>(null)
   const [momentId, setMomentId] = useState<number | null>(null)
+  const [weekPickRecipe, setWeekPickRecipe] = useState<RecipeListItem | null>(null)
 
   const load = useCallback(() => {
     setError(null)
@@ -32,7 +34,7 @@ export default function RecipeList() {
     return recipes.filter(
       (r) =>
         (needle === '' || r.title.toLowerCase().includes(needle)) &&
-        (categoryId === null || r.category_id === categoryId) &&
+        (categoryId === null || r.category_ids.includes(categoryId)) &&
         (momentId === null || r.moment_id === momentId),
     )
   }, [recipes, search, categoryId, momentId])
@@ -99,7 +101,7 @@ export default function RecipeList() {
         ) : (
           <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {filtered.map((recipe) => (
-              <li key={recipe.id}>
+              <li key={recipe.id} className="relative">
                 <Link
                   to={`/weekmenu/recepten/${recipe.id}`}
                   className="block overflow-hidden rounded-2xl border border-edge bg-surface transition-colors hover:bg-raised/50"
@@ -125,10 +127,27 @@ export default function RecipeList() {
                     )}
                   </div>
                 </Link>
+                <button
+                  onClick={() => setWeekPickRecipe(recipe)}
+                  aria-label="Aan weekmenu toevoegen"
+                  title="Aan weekmenu toevoegen"
+                  className="absolute right-2 top-2 flex size-8 items-center justify-center rounded-lg bg-surface/90 text-ink-2 shadow-sm backdrop-blur transition-colors hover:bg-surface hover:text-accent"
+                >
+                  <IconCalendar className="size-4" />
+                </button>
               </li>
             ))}
           </ul>
         ))}
+
+      {weekPickRecipe && (
+        <WeekSlotPickerModal
+          recipeId={weekPickRecipe.id}
+          recipeServings={weekPickRecipe.servings}
+          onClose={() => setWeekPickRecipe(null)}
+          onAdded={() => setWeekPickRecipe(null)}
+        />
+      )}
     </div>
   )
 }
@@ -140,12 +159,16 @@ function RecipePills({
   recipe: RecipeListItem
   attributes: NonNullable<ReturnType<typeof useAttributes>['attributes']>
 }) {
-  const category = attributes.categories.find((c) => c.id === recipe.category_id)
+  const categories = attributes.categories.filter((c) => recipe.category_ids.includes(c.id))
   const moment = attributeName(attributes.moments, recipe.moment_id)
   const time = attributeName(attributes.times, recipe.time_id)
   return (
     <>
-      {category && <ColorPill color={category.color}>{category.name}</ColorPill>}
+      {categories.map((category) => (
+        <ColorPill key={category.id} color={category.color}>
+          {category.name}
+        </ColorPill>
+      ))}
       {moment && <Pill>{moment}</Pill>}
       {time && <Pill>{time}</Pill>}
     </>

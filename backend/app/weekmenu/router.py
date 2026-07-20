@@ -23,12 +23,17 @@ from app.weekmenu.errors import WeekmenuError, to_http
 from app.weekmenu.schemas import (
     IngredientOut,
     IngredientPatch,
+    PantryCheckItemOut,
     ParsedRecipe,
     ParseRequest,
     RecipeCreate,
     RecipeListOut,
     RecipeOut,
+    RecipeServingsPatch,
     RecipeUpdate,
+    ShoppingListItemCreate,
+    ShoppingListItemOut,
+    ShoppingListItemPatch,
     WeekPlanDayIn,
     WeekPlanDayOut,
 )
@@ -63,12 +68,17 @@ def ping(_user: CurrentUser) -> dict[str, str]:
 
 @router.post("/recipes/parse", response_model=ParsedRecipe)
 def parse_recipe(payload: ParseRequest, _user: CurrentUser, settings: SettingsDep) -> ParsedRecipe:
-    """Parse een recept uit een URL of afbeelding; slaat NOOIT op (review in frontend)."""
+    """Parse een recept uit een URL, afbeelding of document; slaat NOOIT op (review in frontend)."""
     try:
         if payload.url:
             return parsing.parse_url(payload.url, settings)
-        assert payload.image_base64 and payload.image_media_type  # afgedwongen door schema
-        return parsing.parse_image(payload.image_base64, payload.image_media_type, settings)
+        if payload.image_base64:
+            assert payload.image_media_type  # afgedwongen door schema
+            return parsing.parse_image(payload.image_base64, payload.image_media_type, settings)
+        assert payload.document_base64 and payload.document_media_type  # afgedwongen door schema
+        return parsing.parse_document(
+            payload.document_base64, payload.document_media_type, settings
+        )
     except WeekmenuError as exc:
         raise to_http(exc) from exc
 
@@ -116,6 +126,18 @@ def update_recipe(
         photos.delete_photo(new_photo_path)
         raise to_http(exc) from exc
     photos.delete_photo(photo_to_delete)
+    return crud.recipe_to_out(recipe)
+
+
+@router.patch("/recipes/{recipe_id}/servings", response_model=RecipeOut)
+def patch_recipe_servings(
+    recipe_id: int, payload: RecipeServingsPatch, _user: CurrentUser, db: DbDep
+) -> RecipeOut:
+    """Lichte update voor enkel het aantal personen (stepper op de receptpagina)."""
+    try:
+        recipe = crud.patch_recipe_servings(db, recipe_id, payload.servings)
+    except WeekmenuError as exc:
+        raise to_http(exc) from exc
     return crud.recipe_to_out(recipe)
 
 
@@ -181,3 +203,49 @@ def put_week_day(
         return crud.upsert_week_day(db, day, payload)
     except WeekmenuError as exc:
         raise to_http(exc) from exc
+
+
+@router.get("/shopping-list", response_model=list[ShoppingListItemOut])
+def get_shopping_list(start: date, _user: CurrentUser, db: DbDep) -> list[ShoppingListItemOut]:
+    """Synct de automatische items tegen de recepten van deze week en geeft de
+    volledige lijst (handmatig + automatisch) terug."""
+    try:
+        return crud.sync_and_get_shopping_list(db, start)
+    except WeekmenuError as exc:
+        raise to_http(exc) from exc
+
+
+@router.get("/pantry-check", response_model=list[PantryCheckItemOut])
+def get_pantry_check(start: date, _user: CurrentUser, db: DbDep) -> list[PantryCheckItemOut]:
+    """De "Nodig uit voorraadkast"-checklist: alle pantry-ingrediënten van deze week,
+    ongeacht in_stock. Aanvinken hier bepaalt wat er in de boodschappenlijst komt."""
+    return crud.get_pantry_check(db, start)
+
+
+@router.post("/shopping-list/items", response_model=ShoppingListItemOut, status_code=201)
+def create_shopping_list_item(
+    payload: ShoppingListItemCreate, _user: CurrentUser, db: DbDep
+) -> ShoppingListItemOut:
+    try:
+        return crud.create_manual_shopping_item(db, payload)
+    except WeekmenuError as exc:
+        raise to_http(exc) from exc
+
+
+@router.patch("/shopping-list/items/{item_id}", response_model=ShoppingListItemOut)
+def patch_shopping_list_item(
+    item_id: int, payload: ShoppingListItemPatch, _user: CurrentUser, db: DbDep
+) -> ShoppingListItemOut:
+    try:
+        return crud.patch_shopping_list_item(db, item_id, payload.checked)
+    except WeekmenuError as exc:
+        raise to_http(exc) from exc
+
+
+@router.delete("/shopping-list/items/{item_id}", status_code=204)
+def delete_shopping_list_item(item_id: int, _user: CurrentUser, db: DbDep) -> Response:
+    try:
+        crud.delete_shopping_list_item(db, item_id)
+    except WeekmenuError as exc:
+        raise to_http(exc) from exc
+    return Response(status_code=204)

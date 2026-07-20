@@ -38,9 +38,10 @@ export interface Recipe {
   photo_path: string | null
   source_url: string | null
   moment_id: number | null
-  category_id: number | null
+  category_ids: number[]
   time_id: number | null
   difficulty_id: number | null
+  servings: number | null
   ingredients: RecipeIngredient[]
 }
 
@@ -49,9 +50,10 @@ export interface RecipeListItem {
   title: string
   photo_path: string | null
   moment_id: number | null
-  category_id: number | null
+  category_ids: number[]
   time_id: number | null
   difficulty_id: number | null
+  servings: number | null
   created_at: string
 }
 
@@ -67,6 +69,7 @@ export interface ParsedRecipe {
   description: string
   photo_url: string | null
   source_url: string | null
+  servings: number | null
   ingredients: ParsedIngredient[]
 }
 
@@ -85,9 +88,10 @@ export interface RecipePayload {
   photo_base64: string | null
   photo_media_type: string | null
   moment_id: number | null
-  category_id: number | null
+  category_ids: number[]
   time_id: number | null
   difficulty_id: number | null
+  servings: number | null
   ingredients: IngredientIn[]
   /** Alleen relevant bij PUT. */
   remove_photo?: boolean
@@ -98,6 +102,7 @@ export interface IngredientRow {
   name: string
   pantry_type: PantryType
   shopping_category_id: number | null
+  in_stock: boolean
   recipe_count: number
 }
 
@@ -105,6 +110,7 @@ export interface IngredientPatch {
   name?: string
   pantry_type?: PantryType
   shopping_category_id?: number | null
+  in_stock?: boolean
 }
 
 export interface WeekPlanDay {
@@ -114,10 +120,38 @@ export interface WeekPlanDay {
   recipe_photo_path: string | null
   free_text: string | null
   checked: boolean
+  servings: number | null
 }
 
 export interface WeekPlanDayPayload {
   recipe_id: number | null
   free_text: string | null
   checked: boolean
+  servings: number | null
+}
+
+export interface ShoppingListItemRow {
+  id: number
+  name: string
+  category_id: number
+  checked: boolean
+  manually_added: boolean
+  quantity: string | null
+  ingredient_id: number | null
+  in_stock: boolean | null
+}
+
+export interface ShoppingListItemPayload {
+  name: string
+  category_id: number
+  quantity?: string | null
+}
+
+/** "Nodig uit voorraadkast"-checklist: alle pantry-ingrediënten van deze week,
+ * ongeacht in_stock (dit toont alles, niet enkel wat al als 'nodig' aangevinkt is). */
+export interface PantryCheckItem {
+  ingredient_id: number
+  name: string
+  quantity: string | null
+  in_stock: boolean
 }
