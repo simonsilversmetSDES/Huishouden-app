@@ -7,7 +7,7 @@ gebeurt apart via ``RecipeCreate`` na review in de frontend.
 
 import base64
 import binascii
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, model_validator
 
@@ -221,3 +221,39 @@ class IngredientPatch(BaseModel):
         if "pantry_type" in self.model_fields_set and self.pantry_type is None:
             raise ValueError("pantry_type mag niet null zijn.")
         return self
+
+
+# --- Weekplanning (Fase 4) ---
+
+
+class WeekPlanDayIn(BaseModel):
+    """Upsert-payload voor één dag; een dag heeft óf een recept óf vrije tekst
+    (nooit allebei) en kan pas afgevinkt worden zodra er iets gepland staat —
+    anders ontstaat een betekenisloze "afgevinkte lege dag"."""
+
+    recipe_id: int | None = None
+    free_text: str | None = None
+    checked: bool = False
+
+    @model_validator(mode="after")
+    def _not_both(self) -> "WeekPlanDayIn":
+        if self.recipe_id is not None and self.free_text is not None and self.free_text.strip():
+            raise ValueError("Kies óf een recept óf vrije tekst, niet allebei.")
+        return self
+
+    @model_validator(mode="after")
+    def _no_checked_without_content(self) -> "WeekPlanDayIn":
+        has_content = self.recipe_id is not None or bool((self.free_text or "").strip())
+        if self.checked and not has_content:
+            raise ValueError("Een lege dag kan niet afgevinkt worden.")
+        return self
+
+
+class WeekPlanDayOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    date: date
+    recipe_id: int | None
+    recipe_title: str | None
+    free_text: str | None
+    checked: bool

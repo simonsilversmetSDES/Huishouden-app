@@ -1,4 +1,7 @@
-"""Database-operaties voor Weekmenu (Fase 2: opslaan; Fase 3: CRUD + ingrediëntenbeheer)."""
+"""Database-operaties voor Weekmenu (Fase 2: opslaan; Fase 3: CRUD + ingrediëntenbeheer;
+Fase 4: weekplanning)."""
+
+from datetime import date, timedelta
 
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
@@ -27,6 +30,8 @@ from app.weekmenu.schemas import (
     RecipeIngredientOut,
     RecipeOut,
     RecipeUpdate,
+    WeekPlanDayIn,
+    WeekPlanDayOut,
 )
 
 
@@ -289,6 +294,54 @@ def patch_ingredient(db: Session, ingredient_id: int, patch: IngredientPatch) ->
     db.commit()
     db.refresh(ingredient)
     return _ingredient_out(db, ingredient)
+
+
+def _week_day_out(day: date, entry: WeekPlanEntry | None) -> WeekPlanDayOut:
+    if entry is None:
+        return WeekPlanDayOut(
+            date=day, recipe_id=None, recipe_title=None, free_text=None, checked=False
+        )
+    return WeekPlanDayOut(
+        date=day,
+        recipe_id=entry.recipe_id,
+        recipe_title=entry.recipe.title if entry.recipe else None,
+        free_text=entry.free_text,
+        checked=entry.checked,
+    )
+
+
+def get_week(db: Session, start: date) -> list[WeekPlanDayOut]:
+    """Zeven dagen vanaf ``start``; dagen zonder rij worden als lege dag
+    gesynthetiseerd (de tabel hoeft niet vooraf gevuld te zijn)."""
+    end = start + timedelta(days=6)
+    entries = {
+        entry.date: entry
+        for entry in db.scalars(
+            select(WeekPlanEntry).where(WeekPlanEntry.date.between(start, end))
+        )
+    }
+    return [
+        _week_day_out(start + timedelta(days=offset), entries.get(start + timedelta(days=offset)))
+        for offset in range(7)
+    ]
+
+
+def upsert_week_day(db: Session, day: date, data: WeekPlanDayIn) -> WeekPlanDayOut:
+    """Get-or-create op datum; zet de drie velden zoals meegegeven."""
+    if data.recipe_id is not None and db.get(Recipe, data.recipe_id) is None:
+        raise WeekmenuError(400, "unknown_attribute", f"Onbekend recipe_id: {data.recipe_id}.")
+
+    entry = db.scalar(select(WeekPlanEntry).where(WeekPlanEntry.date == day))
+    if entry is None:
+        entry = WeekPlanEntry(date=day)
+        db.add(entry)
+
+    entry.recipe_id = data.recipe_id
+    entry.free_text = data.free_text
+    entry.checked = data.checked
+    db.commit()
+    db.refresh(entry)
+    return _week_day_out(day, entry)
 
 
 def recipe_to_out(recipe: Recipe) -> RecipeOut:

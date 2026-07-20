@@ -7,6 +7,7 @@ auth-beveiligd serveren van receptfoto's.
 """
 
 import base64
+from datetime import date
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Response
@@ -28,6 +29,8 @@ from app.weekmenu.schemas import (
     RecipeListOut,
     RecipeOut,
     RecipeUpdate,
+    WeekPlanDayIn,
+    WeekPlanDayOut,
 )
 
 router = APIRouter(prefix="/api/weekmenu", tags=["weekmenu"])
@@ -161,3 +164,20 @@ def get_photo(filename: str, _user: CurrentUser) -> FileResponse:
         media_type=photos.media_type_for(filename),
         headers={"Cache-Control": "private, max-age=31536000, immutable"},
     )
+
+
+@router.get("/week", response_model=list[WeekPlanDayOut])
+def get_week(start: date, _user: CurrentUser, db: DbDep) -> list[WeekPlanDayOut]:
+    """Zeven dagen vanaf ``start``; dagen zonder invulling komen leeg terug."""
+    return crud.get_week(db, start)
+
+
+@router.put("/week/{day}", response_model=WeekPlanDayOut)
+def put_week_day(
+    day: date, payload: WeekPlanDayIn, _user: CurrentUser, db: DbDep
+) -> WeekPlanDayOut:
+    """Upsert van één dag (recept óf vrije tekst, plus afvink-toggle)."""
+    try:
+        return crud.upsert_week_day(db, day, payload)
+    except WeekmenuError as exc:
+        raise to_http(exc) from exc
