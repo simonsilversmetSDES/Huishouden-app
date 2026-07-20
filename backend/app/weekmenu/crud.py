@@ -3,6 +3,8 @@
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
+from app.config import Settings
+from app.weekmenu import ingredient_categorization
 from app.weekmenu.errors import WeekmenuError
 from app.weekmenu.models import (
     Ingredient,
@@ -33,19 +35,20 @@ def normalize_ingredient_name(name: str) -> str:
     return " ".join(name.lower().split())
 
 
-def get_or_create_ingredient(db: Session, name: str) -> Ingredient:
+def get_or_create_ingredient(db: Session, name: str) -> tuple[Ingredient, bool]:
     """Match op normalized_name: bestaand → hergebruiken (pantry_type en
-    winkelcategorie blijven staan); nieuw → aanmaken met pantry_type = normal."""
+    winkelcategorie blijven staan); nieuw → aanmaken met pantry_type = normal.
+    De bool geeft aan of het net is aangemaakt (voor de auto-categorisering)."""
     normalized = normalize_ingredient_name(name)
     existing = db.scalar(select(Ingredient).where(Ingredient.normalized_name == normalized))
     if existing is not None:
-        return existing
+        return existing, False
     ingredient = Ingredient(
         name=name.strip(), normalized_name=normalized, pantry_type=PantryType.NORMAL
     )
     db.add(ingredient)
     db.flush()  # id nodig vóór de koppelrijen
-    return ingredient
+    return ingredient, True
 
 
 def _check_attribute_ids(db: Session, data: RecipeCreate) -> None:
@@ -60,13 +63,19 @@ def _check_attribute_ids(db: Session, data: RecipeCreate) -> None:
             raise WeekmenuError(400, "unknown_attribute", f"Onbekende {label}: {value}.")
 
 
-def _build_ingredient_links(db: Session, items: list[RecipeIngredientIn]) -> list[RecipeIngredient]:
+def _build_ingredient_links(
+    db: Session, items: list[RecipeIngredientIn]
+) -> tuple[list[RecipeIngredient], list[Ingredient]]:
     """Koppelrijen voor een recept; dubbele ingrediënten binnen het recept worden
-    samengevoegd tot één koppelrij (eerste hoeveelheid wint)."""
+    samengevoegd tot één koppelrij (eerste hoeveelheid wint). Geeft ook de net
+    aangemaakte (nog niet bestaande) ingrediënten terug, voor de auto-categorisering."""
     links: list[RecipeIngredient] = []
+    new_ingredients: list[Ingredient] = []
     seen_ingredient_ids: set[int] = set()
     for item in items:
-        ingredient = get_or_create_ingredient(db, item.name)
+        ingredient, created = get_or_create_ingredient(db, item.name)
+        if created:
+            new_ingredients.append(ingredient)
         if ingredient.id in seen_ingredient_ids:
             continue
         seen_ingredient_ids.add(ingredient.id)
@@ -78,11 +87,37 @@ def _build_ingredient_links(db: Session, items: list[RecipeIngredientIn]) -> lis
                 note=item.note,
             )
         )
-    return links
+    return links, new_ingredients
 
 
-def create_recipe(db: Session, data: RecipeCreate, photo_path: str | None) -> Recipe:
-    """Recept + koppelrijen in één commit."""
+def _auto_categorize_new_ingredients(
+    db: Session, new_ingredients: list[Ingredient], settings: Settings
+) -> None:
+    """Vraag voor elk NIEUW ingrediënt in dit request een winkelcategorie aan Claude
+    (niet-fataal — zie ingredient_categorization.py). Bestaande ingrediënten worden
+    hier nooit aan getoetst, ook niet als ze nog geen categorie hebben."""
+    if not new_ingredients:
+        return
+    categories = list(db.scalars(select(ShoppingCategory)))
+    if not categories:
+        return
+    mapping = ingredient_categorization.classify_ingredients(
+        [i.name for i in new_ingredients], categories, settings
+    )
+    if not mapping:
+        return
+    for ingredient in new_ingredients:
+        category_id = mapping.get(ingredient.name)
+        if category_id is not None:
+            ingredient.shopping_category_id = category_id
+    db.commit()
+
+
+def create_recipe(
+    db: Session, data: RecipeCreate, photo_path: str | None, settings: Settings
+) -> Recipe:
+    """Recept + koppelrijen in één commit; nieuwe ingrediënten krijgen daarna best-effort
+    een winkelcategorie via Claude (aparte, niet-fatale stap — zie hierboven)."""
     _check_attribute_ids(db, data)
     recipe = Recipe(
         title=data.title.strip(),
@@ -95,9 +130,11 @@ def create_recipe(db: Session, data: RecipeCreate, photo_path: str | None) -> Re
         difficulty_id=data.difficulty_id,
     )
     db.add(recipe)
-    recipe.ingredients = _build_ingredient_links(db, data.ingredients)
+    links, new_ingredients = _build_ingredient_links(db, data.ingredients)
+    recipe.ingredients = links
     db.commit()
     db.refresh(recipe)
+    _auto_categorize_new_ingredients(db, new_ingredients, settings)
     return recipe
 
 
@@ -113,10 +150,17 @@ def get_recipe(db: Session, recipe_id: int) -> Recipe:
 
 
 def update_recipe(
-    db: Session, recipe_id: int, data: RecipeUpdate, new_photo_path: str | None
+    db: Session,
+    recipe_id: int,
+    data: RecipeUpdate,
+    new_photo_path: str | None,
+    settings: Settings,
 ) -> tuple[Recipe, str | None]:
     """Volledige vervanging van scalars + ingrediëntenlijst (delete-orphan ruimt de
-    oude koppelrijen op; canonieke ingrediënten blijven altijd bestaan).
+    oude koppelrijen op; canonieke ingrediënten blijven altijd bestaan). Ingrediënten
+    die door deze PUT voor het eerst worden aangemaakt, krijgen daarna best-effort een
+    winkelcategorie (zie _auto_categorize_new_ingredients); al bestaande ingrediënten
+    worden — ook zonder categorie — nooit opnieuw geclassificeerd.
 
     Geeft naast het recept de OUDE bestandsnaam terug die de router — ná de commit —
     van schijf mag verwijderen (None als de foto ongemoeid blijft). Bij een mislukte
@@ -132,7 +176,8 @@ def update_recipe(
     recipe.category_id = data.category_id
     recipe.time_id = data.time_id
     recipe.difficulty_id = data.difficulty_id
-    recipe.ingredients = _build_ingredient_links(db, data.ingredients)
+    links, new_ingredients = _build_ingredient_links(db, data.ingredients)
+    recipe.ingredients = links
 
     photo_to_delete: str | None = None
     if new_photo_path is not None:
@@ -144,6 +189,7 @@ def update_recipe(
 
     db.commit()
     db.refresh(recipe)
+    _auto_categorize_new_ingredients(db, new_ingredients, settings)
     return recipe, photo_to_delete
 
 

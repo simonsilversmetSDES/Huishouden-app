@@ -66,7 +66,7 @@ def _patch_claude(
     """Vervang de Anthropic-client (incl. key-check) door een fake zonder netwerk."""
     messages = _FakeMessages(reply, error)
     monkeypatch.setattr(
-        parsing, "_claude_client", lambda settings: SimpleNamespace(messages=messages)
+        parsing, "get_claude_client", lambda settings: SimpleNamespace(messages=messages)
     )
     return messages
 
@@ -190,9 +190,7 @@ def test_parser3_afbeelding(logged_in: TestClient, monkeypatch: pytest.MonkeyPat
     }
 
 
-def test_parser3_api_fout_geeft_502(
-    logged_in: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_parser3_api_fout_geeft_502(logged_in: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     _patch_claude(monkeypatch, None, error=anthropic.AnthropicError("api kapot"))
     resp = logged_in.post(
         PARSE_URL, json={"image_base64": IMAGE_B64, "image_media_type": "image/jpeg"}
@@ -225,8 +223,11 @@ def test_parse_vereist_login(client: TestClient) -> None:
     "payload",
     [
         {},
-        {"url": "https://example.com/r", "image_base64": IMAGE_B64,
-         "image_media_type": "image/jpeg"},
+        {
+            "url": "https://example.com/r",
+            "image_base64": IMAGE_B64,
+            "image_media_type": "image/jpeg",
+        },
     ],
 )
 def test_parse_precies_een_bron_verplicht(logged_in: TestClient, payload: dict) -> None:

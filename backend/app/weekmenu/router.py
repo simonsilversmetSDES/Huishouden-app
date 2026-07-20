@@ -71,11 +71,13 @@ def parse_recipe(payload: ParseRequest, _user: CurrentUser, settings: SettingsDe
 
 
 @router.post("/recipes", response_model=RecipeOut, status_code=201)
-def create_recipe(payload: RecipeCreate, _user: CurrentUser, db: DbDep) -> RecipeOut:
+def create_recipe(
+    payload: RecipeCreate, _user: CurrentUser, db: DbDep, settings: SettingsDep
+) -> RecipeOut:
     """Sla een gereviewd recept op; de foto wordt lokaal opgeslagen (niet-fataal)."""
     photo_path = _store_photo(payload)
     try:
-        recipe = crud.create_recipe(db, payload, photo_path)
+        recipe = crud.create_recipe(db, payload, photo_path, settings)
     except WeekmenuError as exc:
         raise to_http(exc) from exc
     return crud.recipe_to_out(recipe)
@@ -98,12 +100,14 @@ def get_recipe(recipe_id: int, _user: CurrentUser, db: DbDep) -> RecipeOut:
 
 @router.put("/recipes/{recipe_id}", response_model=RecipeOut)
 def update_recipe(
-    recipe_id: int, payload: RecipeUpdate, _user: CurrentUser, db: DbDep
+    recipe_id: int, payload: RecipeUpdate, _user: CurrentUser, db: DbDep, settings: SettingsDep
 ) -> RecipeOut:
     """Volledige vervanging; de oude foto verdwijnt pas ná een geslaagde commit."""
     new_photo_path = _store_photo(payload)
     try:
-        recipe, photo_to_delete = crud.update_recipe(db, recipe_id, payload, new_photo_path)
+        recipe, photo_to_delete = crud.update_recipe(
+            db, recipe_id, payload, new_photo_path, settings
+        )
     except WeekmenuError as exc:
         # Commit mislukt/geweigerd → de al weggeschreven nieuwe foto is een wees.
         photos.delete_photo(new_photo_path)

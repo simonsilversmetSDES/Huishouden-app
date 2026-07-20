@@ -54,15 +54,60 @@ _IMAGE_PROMPT = (
 
 # Heuristiek om "500 g bloem" te splitsen; eenheden die we als eenheid herkennen.
 _KNOWN_UNITS = {
-    "g", "gr", "gram", "kg", "kilo", "kilogram", "mg",
-    "ml", "cl", "dl", "l", "liter",
-    "el", "eetlepel", "eetlepels", "tl", "theelepel", "theelepels",
-    "snufje", "snufjes", "mespunt", "mespuntje",
-    "teentje", "teentjes", "stuk", "stuks", "stukje", "stukjes",
-    "blik", "blikje", "blikjes", "zakje", "zakjes", "pak", "pakje", "pakjes",
-    "bosje", "bosjes", "takje", "takjes", "plak", "plakken", "plakjes",
-    "scheut", "scheutje", "kop", "kopje", "kopjes", "cup", "cups",
-    "tbsp", "tsp", "oz", "lb",
+    "g",
+    "gr",
+    "gram",
+    "kg",
+    "kilo",
+    "kilogram",
+    "mg",
+    "ml",
+    "cl",
+    "dl",
+    "l",
+    "liter",
+    "el",
+    "eetlepel",
+    "eetlepels",
+    "tl",
+    "theelepel",
+    "theelepels",
+    "snufje",
+    "snufjes",
+    "mespunt",
+    "mespuntje",
+    "teentje",
+    "teentjes",
+    "stuk",
+    "stuks",
+    "stukje",
+    "stukjes",
+    "blik",
+    "blikje",
+    "blikjes",
+    "zakje",
+    "zakjes",
+    "pak",
+    "pakje",
+    "pakjes",
+    "bosje",
+    "bosjes",
+    "takje",
+    "takjes",
+    "plak",
+    "plakken",
+    "plakjes",
+    "scheut",
+    "scheutje",
+    "kop",
+    "kopje",
+    "kopjes",
+    "cup",
+    "cups",
+    "tbsp",
+    "tsp",
+    "oz",
+    "lb",
 }
 _INGREDIENT_RE = re.compile(
     r"^\s*(?P<qty>\d+(?:[.,]\d+)?(?:\s*[-–/]\s*\d+(?:[.,]\d+)?)?|½|¼|¾)\s*"
@@ -127,7 +172,8 @@ def _html_to_text(html: str) -> str:
     return text[:MAX_CLAUDE_TEXT_CHARS]
 
 
-def _claude_client(settings: Settings) -> anthropic.Anthropic:
+def get_claude_client(settings: Settings) -> anthropic.Anthropic:
+    """Gedeeld met ingredient_categorization.py — zelfde 503 als geen key geconfigureerd is."""
     if not settings.anthropic_api_key:
         raise WeekmenuError(
             503,
@@ -138,7 +184,7 @@ def _claude_client(settings: Settings) -> anthropic.Anthropic:
 
 
 def _claude_call(settings: Settings, content: list[dict]) -> ParsedRecipe:
-    client = _claude_client(settings)
+    client = get_claude_client(settings)
     try:
         response = client.messages.create(
             model=settings.anthropic_model,
