@@ -20,6 +20,7 @@ import RecipeEdit from './weekmenu/RecipeEdit'
 import RecipeList from './weekmenu/RecipeList'
 import RecipeNew from './weekmenu/RecipeNew'
 import WeekmenuLayout from './weekmenu/WeekmenuLayout'
+import WeekPlanner from './weekmenu/WeekPlanner'
 
 // Layout-route: vereist login en stelt de gedeelde app-state (contexten) beschikbaar.
 function AuthedArea() {
@@ -54,6 +55,7 @@ export default function App() {
             <Route path="/lijstjes" element={<ComingSoon title="Lijstjes" />} />
             <Route path="/weekmenu" element={<WeekmenuLayout />}>
               <Route index element={<RecipeList />} />
+              <Route path="week" element={<WeekPlanner />} />
               <Route path="recepten/nieuw" element={<RecipeNew />} />
               <Route path="recepten/:id" element={<RecipeDetail />} />
               <Route path="recepten/:id/bewerken" element={<RecipeEdit />} />

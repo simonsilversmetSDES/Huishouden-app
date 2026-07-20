@@ -3,10 +3,11 @@
 
 import { Link, NavLink, Outlet } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
-import { IconGrid, IconSliders, IconUtensils } from '../components/icons'
+import { IconCalendar, IconGrid, IconSliders, IconUtensils } from '../components/icons'
 
 const NAV = [
   { to: '/weekmenu', end: true, label: 'Recepten', icon: IconUtensils },
+  { to: '/weekmenu/week', end: false, label: 'Week', icon: IconCalendar },
   { to: '/weekmenu/beheer', end: false, label: 'Beheer', icon: IconSliders },
 ]
 

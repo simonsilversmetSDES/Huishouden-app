@@ -9,6 +9,8 @@ import type {
   Recipe,
   RecipeListItem,
   RecipePayload,
+  WeekPlanDay,
+  WeekPlanDayPayload,
 } from './types'
 
 const BASE = '/api/weekmenu'
@@ -65,3 +67,9 @@ export const patchIngredient = (id: number, patch: IngredientPatch) =>
     method: 'PATCH',
     body: JSON.stringify(patch),
   })
+
+export const getWeek = (start: string) =>
+  api<WeekPlanDay[]>(`${BASE}/week?start=${start}`)
+
+export const putWeekDay = (date: string, payload: WeekPlanDayPayload) =>
+  api<WeekPlanDay>(`${BASE}/week/${date}`, { method: 'PUT', body: JSON.stringify(payload) })

@@ -106,3 +106,18 @@ export interface IngredientPatch {
   pantry_type?: PantryType
   shopping_category_id?: number | null
 }
+
+export interface WeekPlanDay {
+  date: string // ISO
+  recipe_id: number | null
+  recipe_title: string | null
+  recipe_photo_path: string | null
+  free_text: string | null
+  checked: boolean
+}
+
+export interface WeekPlanDayPayload {
+  recipe_id: number | null
+  free_text: string | null
+  checked: boolean
+}
