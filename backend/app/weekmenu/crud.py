@@ -299,12 +299,18 @@ def patch_ingredient(db: Session, ingredient_id: int, patch: IngredientPatch) ->
 def _week_day_out(day: date, entry: WeekPlanEntry | None) -> WeekPlanDayOut:
     if entry is None:
         return WeekPlanDayOut(
-            date=day, recipe_id=None, recipe_title=None, free_text=None, checked=False
+            date=day,
+            recipe_id=None,
+            recipe_title=None,
+            recipe_photo_path=None,
+            free_text=None,
+            checked=False,
         )
     return WeekPlanDayOut(
         date=day,
         recipe_id=entry.recipe_id,
         recipe_title=entry.recipe.title if entry.recipe else None,
+        recipe_photo_path=entry.recipe.photo_path if entry.recipe else None,
         free_text=entry.free_text,
         checked=entry.checked,
     )

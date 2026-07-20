@@ -255,5 +255,6 @@ class WeekPlanDayOut(BaseModel):
     date: date
     recipe_id: int | None
     recipe_title: str | None
+    recipe_photo_path: str | None
     free_text: str | None
     checked: bool
