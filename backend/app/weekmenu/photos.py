@@ -11,13 +11,22 @@ import re
 import uuid
 from pathlib import Path
 
+from app.config import get_settings
 from app.weekmenu.errors import WeekmenuError
 from app.weekmenu.url_security import MAX_PHOTO_BYTES, fetch_url
 
 logger = logging.getLogger(__name__)
 
-# backend/data/recipe_photos — tests verleggen dit via monkeypatch naar tmp_path.
-PHOTOS_DIR = Path(__file__).resolve().parents[2] / "data" / "recipe_photos"
+
+def _default_photos_dir() -> Path:
+    """Dev-fallback: backend/data/recipe_photos — tests verleggen dit via monkeypatch naar tmp_path."""
+    return Path(__file__).resolve().parents[2] / "data" / "recipe_photos"
+
+
+# WEEKMENU_PHOTOS_DIR-override (zie config.py) zodat dit in Docker naar het
+# gemounte /data-volume wijst i.p.v. de container-eigen laag.
+_configured_dir = get_settings().weekmenu_photos_dir
+PHOTOS_DIR = Path(_configured_dir) if _configured_dir else _default_photos_dir()
 
 _EXTENSIONS = {
     "image/jpeg": ".jpg",

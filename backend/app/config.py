@@ -69,6 +69,11 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-haiku-4-5"
 
+    # Weekmenu: map voor receptfoto's. Leeg = dev-fallback (backend/data/recipe_photos);
+    # in Docker overschreven naar /data/recipe_photos (het gemounte volume, zie
+    # docker-compose.yml), anders verdwijnen foto's bij een container-rebuild.
+    weekmenu_photos_dir: str = ""
+
 
 @lru_cache
 def get_settings() -> Settings:
