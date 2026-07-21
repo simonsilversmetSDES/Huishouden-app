@@ -127,3 +127,19 @@ export const IconDots = svg(
     <circle cx="12" cy="19" r="1.1" />
   </>,
 )
+export const IconSliders = svg(
+  <>
+    <path d="M4 7h9M17 7h3" />
+    <circle cx="15" cy="7" r="2" />
+    <path d="M4 17h3M11 17h9" />
+    <circle cx="9" cy="17" r="2" />
+  </>,
+)
+
+export const IconCalendar = svg(
+  <>
+    <rect x="3.5" y="5" width="17" height="15" rx="2" />
+    <path d="M3.5 9.5h17" />
+    <path d="M8 3v4M16 3v4" />
+  </>,
+)
