@@ -4,6 +4,7 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: sqlite:////data/db/huishouden.db
+      WEEKMENU_PHOTOS_DIR: /data/recipe_photos
     volumes:
       - ./data:/data
       - ./scripts:/scripts:ro   # voor: docker compose run --rm backend python /scripts/hash_password.py
