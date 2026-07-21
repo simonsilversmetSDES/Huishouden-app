@@ -22,6 +22,7 @@ from app.routes import (
     snapshots,
     transactions,
 )
+from app.weekmenu import router as weekmenu
 
 
 @asynccontextmanager
@@ -56,3 +57,4 @@ app.include_router(net_worth.router)
 app.include_router(securities.router)
 app.include_router(prices.router)
 app.include_router(loans.router)
+app.include_router(weekmenu.router)

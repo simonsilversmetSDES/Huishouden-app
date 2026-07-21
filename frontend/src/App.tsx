@@ -14,6 +14,14 @@ import Rules from './pages/Rules'
 import Transactions from './pages/Transactions'
 import Vermogen from './pages/Vermogen'
 import { AppStateProvider } from './state/AppState'
+import Beheer from './weekmenu/Beheer'
+import RecipeDetail from './weekmenu/RecipeDetail'
+import RecipeEdit from './weekmenu/RecipeEdit'
+import RecipeList from './weekmenu/RecipeList'
+import RecipeNew from './weekmenu/RecipeNew'
+import ShoppingList from './weekmenu/ShoppingList'
+import WeekmenuLayout from './weekmenu/WeekmenuLayout'
+import WeekPlanner from './weekmenu/WeekPlanner'
 
 // Layout-route: vereist login en stelt de gedeelde app-state (contexten) beschikbaar.
 function AuthedArea() {
@@ -46,7 +54,15 @@ export default function App() {
           <Route element={<AuthedArea />}>
             <Route path="/" element={<AppLauncher />} />
             <Route path="/lijstjes" element={<ComingSoon title="Lijstjes" />} />
-            <Route path="/weekmenu" element={<ComingSoon title="Weekmenu" />} />
+            <Route path="/weekmenu" element={<WeekmenuLayout />}>
+              <Route index element={<RecipeList />} />
+              <Route path="week" element={<WeekPlanner />} />
+              <Route path="boodschappen" element={<ShoppingList />} />
+              <Route path="recepten/nieuw" element={<RecipeNew />} />
+              <Route path="recepten/:id" element={<RecipeDetail />} />
+              <Route path="recepten/:id/bewerken" element={<RecipeEdit />} />
+              <Route path="beheer" element={<Beheer />} />
+            </Route>
 
             <Route path="/financien" element={<FinanceLayout />}>
               <Route index element={<Dashboard />} />

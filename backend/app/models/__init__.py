@@ -14,6 +14,11 @@ from app.models.loans import Loan, LoanContribution, LoanPayment, PropertyInvest
 from app.models.snapshots import AccountSnapshot, NetWorthSnapshot
 from app.models.transactions import CategorizationRule, Import, RuleContext, Transaction
 
+# Weekmenu-feature (app/weekmenu/): import zodat Base.metadata compleet is voor
+# Alembic-autogenerate en de test-create_all. Bewust niet in __all__ — weekmenu-code
+# importeert zijn modellen rechtstreeks uit app.weekmenu.models.
+from app.weekmenu import models as _weekmenu_models  # noqa: E402,F401
+
 __all__ = [
     "Base",
     "User",

@@ -14,6 +14,7 @@ from app.database import SessionLocal
 from app.models import Account, CategorizationRule, Category, Context, User
 from app.models.enums import AccountType, Bank, CategoryType, MatchField, MatchType
 from app.services.csv_parsers import normalize_iban
+from app.weekmenu.seed import seed_weekmenu
 
 logger = logging.getLogger(__name__)
 
@@ -222,6 +223,7 @@ def seed_all(db: Session, settings: Settings) -> None:
     seed_accounts(db, contexts, settings)
     seed_rules(db, contexts)
     seed_users(db, settings)
+    seed_weekmenu(db)
     db.commit()
 
 
