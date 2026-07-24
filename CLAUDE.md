@@ -45,6 +45,10 @@ De planning en fasering staat los in de roadmap (Notion) — werk één fase per
 - Als iets in PROJECT_SPEC.md onduidelijk of tegenstrijdig is: vraag het, raad niet.
 
 
+
+# Huishouden-app — projectinstructies voor weekmenu 
+
+
 ## Actieve feature: Weekmenu
 
 Er wordt gewerkt aan de **Weekmenu-feature** (receptendatabase, weekmenuplanning,
