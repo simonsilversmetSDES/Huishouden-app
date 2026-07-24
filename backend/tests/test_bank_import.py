@@ -40,6 +40,13 @@ FORTIS_SPAAR = "BE77888899990000"
 JOZEFIEN_ZICHT = "BE11222233334444"
 
 
+@pytest.fixture(autouse=True)
+def _no_ai_categorization(monkeypatch: pytest.MonkeyPatch) -> None:
+    """De AI-laag (laag 3) uitschakelen in deze tests: geen netwerk, deterministisch,
+    ongeacht een lokale backend/.env. Regels (laag 1) en historiek (laag 2) blijven werken."""
+    monkeypatch.setattr("app.services.bank_import.suggest_categories_ai", lambda *a, **k: {})
+
+
 @pytest.fixture
 def import_db(seeded_db: Session) -> Session:
     """seeded_db + rekeningen mét IBAN's en de seed-regels."""

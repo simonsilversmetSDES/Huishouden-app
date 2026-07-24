@@ -13,6 +13,7 @@ import type {
   PreviewRow,
   Rule,
   RulePayload,
+  SuggestionSource,
 } from '../api/types'
 import CategoryPicker from '../components/CategoryPicker'
 import { IconTrash } from '../components/icons'
@@ -26,20 +27,29 @@ const inputClass =
 
 // Bewerkbare kopie van een previewrij: categorie/type/bedrag/omschrijving kunnen
 // aangepast worden vóór het opslaan. `edited` = categorie manueel gekozen;
-// `ruleApplied` = door een regel (server-preview of tijdens de import aangemaakt)
-// gezet. `import_hash` blijft de originele dedupe-sleutel — bewerken verandert de
-// identiteit van de rij niet, enkel de opgeslagen waarde.
+// `suggestionSource` = herkomst van een niet-bewerkte suggestie (regel/historiek/AI,
+// door de server-preview of een regel tijdens de import gezet). `import_hash` blijft
+// de originele dedupe-sleutel — bewerken verandert de identiteit van de rij niet,
+// enkel de opgeslagen waarde.
 interface EditRow {
   source: PreviewRow
   categoryId: number | null
   type: CategoryType
   edited: boolean
-  ruleApplied: boolean
+  suggestionSource: SuggestionSource | null
   amountCents: number // signed, gecommit
   amountText: string // wat in het invoerveld staat
   amountInvalid: boolean
   description: string
   effectiveDate: string // ISO; budgetmaand, aanpasbaar vóór opslaan
+}
+
+// Labels + tint voor het herkomst-badge; AI krijgt een waarschuwende tint zodat je
+// die suggesties extra nakijkt.
+const SOURCE_BADGE: Record<SuggestionSource, { label: string; className: string }> = {
+  rule: { label: 'regel', className: 'bg-raised text-ink-3' },
+  history: { label: 'historiek', className: 'bg-raised text-ink-3' },
+  ai: { label: 'AI', className: 'bg-warn/15 text-warn' },
 }
 
 function signType(amountCents: number): CategoryType {
@@ -52,7 +62,7 @@ function toEditRow(row: PreviewRow): EditRow {
     categoryId: row.suggested_category_id,
     type: row.type,
     edited: false,
-    ruleApplied: row.matched_rule_id !== null,
+    suggestionSource: row.suggestion_source,
     amountCents: row.amount_cents,
     amountText: formatCentsPlain(row.amount_cents),
     amountInvalid: false,
@@ -61,10 +71,12 @@ function toEditRow(row: PreviewRow): EditRow {
   }
 }
 
+// Een aanvaarde suggestie (regel/historiek/AI, niet bijgewerkt) is 'auto'; een eigen
+// keuze is 'manual'; geen categorie is 'uncategorized'.
 function categorizationFor(row: EditRow): Categorization {
   if (row.categoryId === null) return 'uncategorized'
   if (row.edited) return 'manual'
-  return row.ruleApplied ? 'auto' : 'manual'
+  return 'auto'
 }
 
 // Prefill voor de regel-editor, afgeleid van een previewrij.
@@ -139,7 +151,7 @@ export default function Import() {
           // met categorie volgt het type de categorie, anders het teken van het bedrag
           type: category ? category.type : signType(row.amountCents),
           edited: true,
-          ruleApplied: false,
+          suggestionSource: null,
         }
       }),
     )
@@ -207,7 +219,7 @@ export default function Import() {
         }
         if (!ruleMatches(candidate, rule)) return row
         updated += 1
-        return { ...row, categoryId: category.id, type: category.type, ruleApplied: true }
+        return { ...row, categoryId: category.id, type: category.type, suggestionSource: 'rule' }
       }),
     )
     return updated
@@ -644,27 +656,45 @@ function PreviewTable({
                 ) : row.source.is_internal_transfer ? (
                   <span className="text-xs text-ink-3">interne overschrijving</span>
                 ) : (
-                  <div className="flex items-center gap-2">
-                    <CategoryPicker
-                      categories={categories}
-                      value={row.categoryId}
-                      onChange={(id) => onChangeCategory(index, id)}
-                      groupByType
-                      allowEmpty
-                      emptyLabel="— ongecategoriseerd —"
-                      placeholder="— ongecategoriseerd —"
-                      ariaLabel="Categorie"
-                      className={selectClass}
-                      wrapperClassName="flex-1"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => onAddRule(row)}
-                      title="Maak een regel op basis van deze rij"
-                      className="whitespace-nowrap rounded-lg border border-edge bg-surface px-2 py-1.5 text-xs text-ink-2 transition-colors hover:bg-raised"
-                    >
-                      ＋ regel
-                    </button>
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <CategoryPicker
+                        categories={categories}
+                        value={row.categoryId}
+                        onChange={(id) => onChangeCategory(index, id)}
+                        groupByType
+                        allowEmpty
+                        emptyLabel="— ongecategoriseerd —"
+                        placeholder="— ongecategoriseerd —"
+                        ariaLabel="Categorie"
+                        className={selectClass}
+                        wrapperClassName="flex-1"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => onAddRule(row)}
+                        title="Maak een regel op basis van deze rij"
+                        className="whitespace-nowrap rounded-lg border border-edge bg-surface px-2 py-1.5 text-xs text-ink-2 transition-colors hover:bg-raised"
+                      >
+                        ＋ regel
+                      </button>
+                    </div>
+                    {!row.edited && row.suggestionSource && (
+                      <span
+                        title={
+                          row.suggestionSource === 'ai'
+                            ? 'Voorgesteld door AI — even nakijken'
+                            : row.suggestionSource === 'history'
+                              ? 'Overgenomen van eerdere transacties met deze tegenpartij'
+                              : 'Voorgesteld door een categorisatieregel'
+                        }
+                        className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                          SOURCE_BADGE[row.suggestionSource].className
+                        }`}
+                      >
+                        {SOURCE_BADGE[row.suggestionSource].label}
+                      </span>
+                    )}
                   </div>
                 )}
               </td>

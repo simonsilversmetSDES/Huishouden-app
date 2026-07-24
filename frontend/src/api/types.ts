@@ -26,6 +26,18 @@ export interface MonthTotals {
   totals: TypeTotal[]
 }
 
+export interface MonthNote {
+  month: number
+  note: string
+}
+
+export interface MonthNotePayload {
+  context_id: number
+  year: number
+  month: number
+  note: string // leeg = notitie verwijderen
+}
+
 export interface DashboardData {
   context_id: number
   year: number
@@ -36,6 +48,7 @@ export interface DashboardData {
   categories: CategoryStatus[]
   uncategorized_count: number
   months: MonthTotals[] // altijd 12, voor de staafgrafiek
+  month_notes: MonthNote[] // enkel maanden mét notitie, oplopend op maand
 }
 
 export interface BudgetCategoryRow {
@@ -588,8 +601,12 @@ export interface PreviewRow {
   is_internal_transfer: boolean
   suggested_category_id: number | null
   suggested_category_name: string | null
+  suggestion_source: SuggestionSource | null // rule | history | ai; null = geen suggestie
   matched_rule_id: number | null
 }
+
+// Herkomst van de categoriesuggestie in de preview.
+export type SuggestionSource = 'rule' | 'history' | 'ai'
 
 export interface ImportPreview {
   bank: Bank

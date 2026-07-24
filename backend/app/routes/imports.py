@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.auth.deps import CurrentUser
+from app.config import Settings, get_settings
 from app.database import get_db
 from app.schemas.imports import ImportCommitIn, ImportPreviewOut, ImportResultOut
 from app.services.bank_import import (
@@ -24,10 +25,11 @@ async def preview_import_route(
     _user: CurrentUser,
     db: Annotated[Session, Depends(get_db)],
     file: Annotated[UploadFile, File()],
+    settings: Annotated[Settings, Depends(get_settings)],
 ) -> ImportPreviewOut:
     content = await file.read()
     try:
-        return build_preview(db, file.filename or "upload.csv", content)
+        return build_preview(db, file.filename or "upload.csv", content, settings)
     except (UnknownFormatError, MultipleAccountsError) as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
 

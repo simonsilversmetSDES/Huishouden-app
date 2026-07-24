@@ -5,10 +5,14 @@ Bedragen over de draad als signed integer-centen (opslagconventie: + = inkomen,
 """
 
 from datetime import date
+from typing import Literal
 
 from pydantic import BaseModel
 
 from app.models.enums import Bank, Categorization, CategoryType
+
+# Herkomst van de categoriesuggestie in de preview (None = geen suggestie).
+SuggestionSource = Literal["rule", "history", "ai"]
 
 
 class AccountRef(BaseModel):
@@ -31,6 +35,7 @@ class PreviewRowOut(BaseModel):
     is_internal_transfer: bool
     suggested_category_id: int | None
     suggested_category_name: str | None
+    suggestion_source: SuggestionSource | None  # rule | history | ai; None = geen suggestie
     matched_rule_id: int | None
 
 

@@ -69,6 +69,12 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-haiku-4-5"
 
+    # Financiën-import: AI-fallback voor categorisatie. Rijen die noch door een regel
+    # noch door de historiek herkend worden, gaan (tegenpartij + omschrijving) naar de
+    # Claude API voor een suggestie. Uitschakelbaar — dan blijven regels + historiek over,
+    # zonder enige externe call. Een lege anthropic_api_key schakelt de laag sowieso uit.
+    import_ai_categorization_enabled: bool = True
+
     # Weekmenu: map voor receptfoto's. Leeg = dev-fallback (backend/data/recipe_photos);
     # in Docker overschreven naar /data/recipe_photos (het gemounte volume, zie
     # docker-compose.yml), anders verdwijnen foto's bij een container-rebuild.

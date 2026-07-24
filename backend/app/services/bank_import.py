@@ -15,12 +15,14 @@ AUTOMATISCH SPAREN) wint van de interne vlag: sparen telt als budget-actual.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.config import Settings, get_settings
 from app.models import Account, CategorizationRule, Category, Context, Import, Transaction
 from app.models.enums import Bank, Categorization, CategoryType, TransactionSource
 from app.schemas.imports import (
@@ -29,9 +31,16 @@ from app.schemas.imports import (
     ImportPreviewOut,
     ImportResultOut,
     PreviewRowOut,
+    SuggestionSource,
 )
 from app.services.budget import from_cents, to_cents
 from app.services.csv_parsers import ParsedRow, normalize_iban, parse_bank_csv
+from app.services.import_categorization import (
+    HistoryResolver,
+    TxCandidate,
+    build_history_resolver,
+    suggest_categories_ai,
+)
 from app.services.rules import (
     MatchCandidate,
     build_category_resolver,
@@ -62,6 +71,19 @@ def _sign_type(row: ParsedRow) -> CategoryType:
     return CategoryType.INKOMEN if row.amount > 0 else CategoryType.UITGAVEN
 
 
+@dataclass
+class _RowDraft:
+    """Tussenstand per previewrij: eerst regel + historiek + interne-detectie, daarna
+    (voor wat nog leeg is) de AI-fallback. Wordt op het eind naar een PreviewRowOut vertaald."""
+
+    row: ParsedRow
+    duplicate: bool
+    is_internal: bool
+    category: Category | None
+    source: SuggestionSource | None
+    rule: CategorizationRule | None
+
+
 def _resolve_account(db: Session, rows: list[ParsedRow]) -> tuple[Account | None, list[str]]:
     file_ibans = sorted({row.account_iban for row in rows})
     if len(file_ibans) > 1:
@@ -85,12 +107,17 @@ def _known_hashes(db: Session) -> set[str]:
     )
 
 
-def build_preview(db: Session, filename: str, content: bytes) -> ImportPreviewOut:
+def build_preview(
+    db: Session, filename: str, content: bytes, settings: Settings | None = None
+) -> ImportPreviewOut:
+    settings = settings or get_settings()
     parsed = parse_bank_csv(content)  # UnknownFormatError propageert naar de route
     account, unmatched = _resolve_account(db, parsed.rows)
 
     rules: list[CategorizationRule] = []
     resolve_category = None
+    history: HistoryResolver | None = None
+    active_categories: list[Category] = []
     own_context_ibans: set[str] = set()
     account_ref = None
     if account is not None:
@@ -101,6 +128,10 @@ def build_preview(db: Session, filename: str, content: bytes) -> ImportPreviewOu
         )
         rules = load_rules(db, context.id)
         resolve_category = build_category_resolver(db, context.id, rules)
+        history = build_history_resolver(db, context.id)
+        active_categories = list(
+            db.scalars(select(Category).where(Category.context_id == context.id, Category.active))
+        )
         own_context_ibans = {
             normalize_iban(a.iban)
             for a in db.scalars(
@@ -111,7 +142,9 @@ def build_preview(db: Session, filename: str, content: bytes) -> ImportPreviewOu
 
     known = _known_hashes(db)
     seen_in_file: set[str] = set()
-    rows: list[PreviewRowOut] = []
+
+    # Laag 1 (regel) + laag 2 (historiek) + interne-detectie, in één pass.
+    drafts: list[_RowDraft] = []
     for row in parsed.rows:
         duplicate = row.import_hash in known or row.import_hash in seen_in_file
         seen_in_file.add(row.import_hash)
@@ -125,30 +158,75 @@ def build_preview(db: Session, filename: str, content: bytes) -> ImportPreviewOu
             ),
         )
         category = resolve_category(rule) if (rule and resolve_category) else None
+        source: SuggestionSource | None = "rule" if category else None
+        # Laag 2: enkel voor rijen die geen regelmatch kregen.
+        if category is None and history is not None:
+            category = history.resolve(
+                TxCandidate(
+                    counterparty_name=row.counterparty_name,
+                    counterparty_iban=row.counterparty_iban,
+                    description=row.description,
+                    amount_cents=to_cents(row.amount),
+                )
+            )
+            if category is not None:
+                source = "history"
+
         is_internal = (
             row.counterparty_iban is not None
             and row.counterparty_iban in own_context_ibans
             and not (category and category.type == CategoryType.SPAREN)
         )
         if is_internal:
-            category, rule = None, None
-        rows.append(
-            PreviewRowOut(
-                date=row.date,
-                effective_date=row.date,
-                amount_cents=to_cents(row.amount),
-                type=category.type if category else _sign_type(row),
-                counterparty_name=row.counterparty_name,
-                counterparty_iban=row.counterparty_iban,
-                description=row.description,
-                import_hash=row.import_hash,
-                duplicate=duplicate,
-                is_internal_transfer=is_internal,
-                suggested_category_id=category.id if category else None,
-                suggested_category_name=category.name if category else None,
-                matched_rule_id=rule.id if rule else None,
+            category, rule, source = None, None, None
+        drafts.append(_RowDraft(row, duplicate, is_internal, category, source, rule))
+
+    # Laag 3 (AI): enkel nieuwe, niet-interne rijen die na regel + historiek nog leeg zijn.
+    pending = [
+        d for d in drafts if not d.duplicate and not d.is_internal and d.category is None
+    ]
+    if pending and active_categories:
+        candidates = [
+            TxCandidate(
+                counterparty_name=d.row.counterparty_name,
+                counterparty_iban=d.row.counterparty_iban,
+                description=d.row.description,
+                amount_cents=to_cents(d.row.amount),
             )
+            for d in pending
+        ]
+        ai_result = suggest_categories_ai(
+            candidates,
+            active_categories,
+            settings,
+            examples=history.examples if history else None,
         )
+        by_id = {c.id: c for c in active_categories}
+        for index, category_id in ai_result.items():
+            category = by_id.get(category_id)
+            if category is not None:
+                pending[index].category = category
+                pending[index].source = "ai"
+
+    rows = [
+        PreviewRowOut(
+            date=d.row.date,
+            effective_date=d.row.date,
+            amount_cents=to_cents(d.row.amount),
+            type=d.category.type if d.category else _sign_type(d.row),
+            counterparty_name=d.row.counterparty_name,
+            counterparty_iban=d.row.counterparty_iban,
+            description=d.row.description,
+            import_hash=d.row.import_hash,
+            duplicate=d.duplicate,
+            is_internal_transfer=d.is_internal,
+            suggested_category_id=d.category.id if d.category else None,
+            suggested_category_name=d.category.name if d.category else None,
+            suggestion_source=d.source,
+            matched_rule_id=d.rule.id if d.rule else None,
+        )
+        for d in drafts
+    ]
 
     duplicate_count = sum(1 for r in rows if r.duplicate)
     return ImportPreviewOut(
