@@ -108,7 +108,7 @@ def fetch_prices(db: Session, securities: list[Security], today: date) -> FetchR
         if not security.ticker:
             continue
         try:
-            price_local, currency, prev_close = _fetch_one(yfinance, security.ticker)
+            price_local, currency, prev_close = _fetch_one(yfinance, security.ticker, today)
             rate = None
             if currency and currency.upper() != "EUR":
                 rate = _fx_rate(yfinance, currency.upper(), fx_cache)
@@ -324,24 +324,69 @@ def fetch_chart_history(ticker_symbol: str, chart_range: str) -> ChartHistory:
     )
 
 
+def _daily_closes(ticker: object) -> list[tuple[date, Decimal]]:
+    """Dagelijkse slotkoersen (oplopend, positief, NaN overgeslagen) uit de historiek.
+    yfinance's fast_info['previousClose'] is onbetrouwbaar; de dagslotkoersen matchen
+    wél de referentie die Bolero/Degiro voor de dagwinst gebruiken."""
+    try:
+        hist = ticker.history(period="5d", interval="1d")  # type: ignore[attr-defined]
+    except Exception:
+        return []
+    out: list[tuple[date, Decimal]] = []
+    if hist is not None and not hist.empty:
+        for timestamp, raw in hist["Close"].items():
+            if raw is None or raw != raw:  # NaN overslaan (Decimal('nan') > 0 gooit)
+                continue
+            value = Decimal(str(raw))
+            if value > 0:
+                out.append((timestamp.date(), value))
+    return out
+
+
+def _close_before(closes: list[tuple[date, Decimal]], ref: date) -> Decimal | None:
+    """Laatste slotkoers met datum strikt vóór `ref` (closes is oplopend)."""
+    prev: Decimal | None = None
+    for day, value in closes:
+        if day < ref:
+            prev = value
+    return prev
+
+
 def _fetch_one(
-    yfinance: object, ticker_symbol: str
+    yfinance: object, ticker_symbol: str, today: date
 ) -> tuple[Decimal, str | None, Decimal | None]:
-    """Actuele koers, munt én de vorige slotkoers (previousClose) — alle drie in de
-    noteringsmunt. previousClose is per beurs de officiële slotkoers van de vorige
-    sessie (Yahoo regelt de beurstijdzone), en dus de juiste referentie voor de
-    dagwinst zoals Bolero/Degiro die tonen."""
+    """Actuele koers, munt én de vorige slotkoers — alle drie in de noteringsmunt.
+
+    De referentie voor de dagwinst is de slotkoers van de sessie *vóór* de sessie van
+    de huidige koers (niet 'vóór vandaag'): zo toont een gesloten beurs de laatste
+    voltooide dagbeweging (zoals een broker in het weekend), i.p.v. 0 %. Bij een open
+    beurs is de huidige koers de live intraday-koers en de referentie de vorige
+    beursdag — dat matcht Bolero/Degiro. fast_info['previousClose'] wordt bewust
+    genegeerd: dat veld zit structureel naast de echte vorige slotkoers."""
     ticker = yfinance.Ticker(ticker_symbol)  # type: ignore[attr-defined]
     fast_info = getattr(ticker, "fast_info", None)
     currency = fast_info.get("currency") if fast_info is not None else None
-    raw_prev = fast_info.get("previousClose") if fast_info is not None else None
-    prev_close = Decimal(str(raw_prev)) if raw_prev is not None else None
-    if prev_close is not None and prev_close <= 0:
-        prev_close = None
-    raw = _last_price(ticker)
-    if raw is None:
-        raise ValueError("geen koers beschikbaar")
-    price = Decimal(str(raw))
+    live = fast_info.get("last_price") if fast_info is not None else None
+    closes = _daily_closes(ticker)
+
+    price: Decimal | None = None
+    prev_close: Decimal | None = None
+    if closes:
+        last_day, last_close = closes[-1]
+        if live is not None and last_day >= today:
+            # Beurs handelt vandaag → live intraday-koers t.o.v. de vorige beursdag.
+            price = Decimal(str(live))
+            prev_close = _close_before(closes, today)
+        else:
+            # Beurs (nog) dicht vandaag → laatste voltooide sessie en de dag ervoor.
+            price = last_close
+            prev_close = _close_before(closes, last_day)
+    if price is None:
+        # Geen bruikbare historiek → val terug op de losse koers (dan geen dagwinst).
+        raw = _last_price(ticker)
+        if raw is None:
+            raise ValueError("geen koers beschikbaar")
+        price = Decimal(str(raw))
     if price <= 0:
         raise ValueError("koers is niet positief")
     return price, (currency if isinstance(currency, str) else None), prev_close

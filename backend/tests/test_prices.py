@@ -103,48 +103,77 @@ def _security(db: Session, name: str = "IWDA", ticker: str | None = "IWDA") -> S
 
 
 class TestFetchDayChange:
-    """fetch_prices berekent de dagbeweging uit last vs previousClose in de
-    noteringsmunt — dus zónder wisselkoerseffect, zoals Bolero/Degiro."""
+    """fetch_prices berekent de dagbeweging in de noteringsmunt (zónder
+    wisselkoerseffect, zoals Bolero/Degiro) t.o.v. de vorige beurs-sessie."""
 
     class _FakeTicker:
-        def __init__(self, fast_info: dict) -> None:
+        def __init__(self, fast_info: dict, closes=None) -> None:  # type: ignore[no-untyped-def]
             self.fast_info = fast_info
+            self._closes = closes  # dict[str, float] of None
 
         def history(self, **_kwargs):  # type: ignore[no-untyped-def]
             import pandas as pd
 
-            return pd.DataFrame({"Close": []})
+            if not self._closes:
+                return pd.DataFrame({"Close": []})
+            return pd.DataFrame(
+                {"Close": list(self._closes.values())},
+                index=pd.to_datetime(list(self._closes.keys())),
+            )
 
     class _FakeYfinance:
-        """USD-effect (+10 % in USD) plus een USDEUR=X-koers van 0,90."""
+        def __init__(self, fast_info: dict, closes: dict) -> None:
+            self._fast_info = fast_info
+            self._closes = closes
 
         def Ticker(self, symbol: str):  # type: ignore[no-untyped-def]  # noqa: N802
             if symbol == "USDEUR=X":
                 return TestFetchDayChange._FakeTicker({"last_price": 0.90})
-            return TestFetchDayChange._FakeTicker(
-                {"currency": "USD", "last_price": 110, "previousClose": 100}
-            )
+            return TestFetchDayChange._FakeTicker(self._fast_info, self._closes)
 
-    def test_dagbeweging_zonder_wisselkoerseffect(
-        self, seeded_db: Session, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def _fetch(self, db, monkeypatch, fast_info, closes):  # type: ignore[no-untyped-def]
         import sys
 
         from app.services.prices import fetch_prices
 
-        sec = _security(seeded_db, ticker="IWDA")
-        monkeypatch.setitem(sys.modules, "yfinance", self._FakeYfinance())
-        result = fetch_prices(seeded_db, [sec], date(2026, 7, 24))
-        seeded_db.commit()
+        sec = _security(db, ticker="IWDA")
+        monkeypatch.setitem(sys.modules, "yfinance", self._FakeYfinance(fast_info, closes))
+        result = fetch_prices(db, [sec], date(2026, 7, 24))
+        db.commit()
+        return sec, result
 
+    def test_open_beurs_zonder_wisselkoerseffect(
+        self, seeded_db: Session, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Beurs handelt vandaag (24/07): live 110 t.o.v. vorige slot 100 = +10 %,
+        # ongeacht de EUR/USD-koers. previousClose in fast_info is bewust fout (999).
+        sec, result = self._fetch(
+            seeded_db,
+            monkeypatch,
+            {"currency": "USD", "last_price": 110, "previousClose": 999},
+            {"2026-07-23": 100.0, "2026-07-24": 108.0},
+        )
         assert result.fetched == 1
-        # +10 % in USD, ongeacht de EUR/USD-koers
         assert sec.day_change_pct == Decimal("10")
         # opgeslagen koers blijft in euro: 110 USD × 0,90 = 99 EUR
         row = seeded_db.scalars(
             select(SecurityPrice).where(SecurityPrice.security_id == sec.id)
         ).one()
         assert row.price == Decimal("99.000000")
+
+    def test_gesloten_beurs_gebruikt_laatste_voltooide_sessie(
+        self, seeded_db: Session, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # Geen live koers en geen slot voor vandaag (bv. VS-beurs nog dicht): toon de
+        # laatste voltooide dagbeweging (23/07 vs 22/07), niet 0 % → het "Alphabet"-geval.
+        sec, _ = self._fetch(
+            seeded_db,
+            monkeypatch,
+            {"currency": "USD", "last_price": None},
+            {"2026-07-22": 342.09, "2026-07-23": 317.69},
+        )
+        # (317,69 / 342,09 − 1) × 100 = −7,133…
+        assert sec.day_change_pct == pytest.approx(Decimal("-7.1327"), abs=Decimal("0.001"))
 
 
 class TestManualPrice:
