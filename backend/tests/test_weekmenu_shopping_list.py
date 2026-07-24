@@ -383,7 +383,11 @@ def test_shopping_list_toont_geschreven_vorm(logged_in: TestClient, db: Session)
 def test_shopping_list_canonieke_basis_bij_conflict(logged_in: TestClient, db: Session) -> None:
     _category(db, "Overig")
     a = _create_recipe(logged_in, "A", [{"name": "wortels", "quantity": "2", "unit": "stuks"}])
-    b = _create_recipe(logged_in, "B", [{"name": "dikke wortelen", "quantity": "3", "unit": "stuks"}])
+    b = _create_recipe(
+        logged_in,
+        "B",
+        [{"name": "dikke wortelen", "quantity": "3", "unit": "stuks"}],
+    )
     _plan_day(logged_in, MONDAY, a)
     _plan_day(logged_in, date(2026, 7, 21), b)
 

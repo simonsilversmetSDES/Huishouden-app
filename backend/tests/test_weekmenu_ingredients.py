@@ -167,7 +167,10 @@ def test_varianten_vallen_onder_hetzelfde_canonieke_ingredient(
 ) -> None:
     """"wortels", "dikke wortelen" en "Wortel" delen één canoniek ingrediënt "wortelen"."""
     for name in ("wortels", "dikke wortelen", "Wortel"):
-        resp = logged_in.post(RECIPES_URL, json={"title": f"R {name}", "ingredients": [{"name": name}]})
+        resp = logged_in.post(
+            RECIPES_URL,
+            json={"title": f"R {name}", "ingredients": [{"name": name}]},
+        )
         assert resp.status_code == 201
 
     rows = logged_in.get(INGREDIENTS_URL).json()

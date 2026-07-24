@@ -19,7 +19,10 @@ logger = logging.getLogger(__name__)
 
 
 def _default_photos_dir() -> Path:
-    """Dev-fallback: backend/data/recipe_photos — tests verleggen dit via monkeypatch naar tmp_path."""
+    """Dev-fallback: backend/data/recipe_photos.
+
+    Tests verleggen dit via monkeypatch naar tmp_path.
+    """
     return Path(__file__).resolve().parents[2] / "data" / "recipe_photos"
 
 
