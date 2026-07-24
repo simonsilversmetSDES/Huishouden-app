@@ -115,7 +115,7 @@ class RecipeCreate(BaseModel):
     photo_url: str | None = None
     photo_base64: str | None = None
     photo_media_type: str | None = None
-    moment_id: int | None = None
+    moment_ids: list[int] = []
     category_ids: list[int] = []
     time_id: int | None = None
     difficulty_id: int | None = None
@@ -180,7 +180,7 @@ class RecipeOut(BaseModel):
     description: str | None
     photo_path: str | None
     source_url: str | None
-    moment_id: int | None
+    moment_ids: list[int]
     category_ids: list[int]
     time_id: int | None
     difficulty_id: int | None
@@ -196,7 +196,7 @@ class RecipeListOut(BaseModel):
     id: int
     title: str
     photo_path: str | None
-    moment_id: int | None
+    moment_ids: list[int]
     category_ids: list[int]
     time_id: int | None
     difficulty_id: int | None

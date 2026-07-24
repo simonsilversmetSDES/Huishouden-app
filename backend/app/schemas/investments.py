@@ -122,8 +122,8 @@ class PositionOut(BaseModel):
     value_cents: int | None
     gain_cents: int | None
     gain_pct: float | None
-    day_gain_cents: int | None  # (laatste koers − voorlaatste koers) × aantal
-    day_gain_pct: float | None  # koersverandering t.o.v. de voorlaatste koersdag
+    day_gain_cents: int | None  # euro-dagwinst = huidige waarde × dagbeweging-% (excl. FX)
+    day_gain_pct: float | None  # dagbeweging in noteringsmunt (last vs previousClose)
     portfolio_pct: float
 
 

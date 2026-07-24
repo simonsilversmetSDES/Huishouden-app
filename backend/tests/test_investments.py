@@ -164,6 +164,36 @@ class TestDagwinst:
         assert pos.day_gain_cents is None
         assert pos.day_gain_pct is None
 
+    def test_dagwinst_uit_day_change_pct(self, seeded_db: Session) -> None:
+        # Broker-conform: het % komt rechtstreeks uit de opgehaalde dagbeweging
+        # (noteringsmunt), het euro-bedrag = huidige waarde × dat %.
+        ctx = _context(seeded_db)
+        sec = _security(seeded_db, ctx, "DAG", ticker="DAG")
+        sec.day_change_pct = Decimal("2.5")
+        _tx(seeded_db, sec, date(2025, 1, 1), SecuritySide.BUY, "10", "100", "1000.00")
+        _price(seeded_db, sec, date(2026, 7, 11), "100")  # huidige waarde € 1.000
+        seeded_db.commit()
+
+        pos = build_portfolio(seeded_db, ctx).positions[0]
+        # € 1.000 × 2,5 % = € 25,00
+        assert pos.day_gain_cents == 2500
+        assert pos.day_gain_pct == pytest.approx(2.5, abs=1e-9)
+
+    def test_day_change_pct_krijgt_voorrang_op_koersrijen(self, seeded_db: Session) -> None:
+        # Ook al staan er twee koersrijen: het opgehaalde % (zonder wisselkoerseffect)
+        # is leidend, niet het verschil tussen de EUR-omgerekende rijen.
+        ctx = _context(seeded_db)
+        sec = _security(seeded_db, ctx, "DAG", ticker="DAG")
+        sec.day_change_pct = Decimal("-1")
+        _tx(seeded_db, sec, date(2025, 1, 1), SecuritySide.BUY, "10", "100", "1000.00")
+        _price(seeded_db, sec, date(2026, 7, 10), "90")
+        _price(seeded_db, sec, date(2026, 7, 11), "100")  # rij-verschil zou +11 % zijn
+        seeded_db.commit()
+
+        pos = build_portfolio(seeded_db, ctx).positions[0]
+        assert pos.day_gain_pct == pytest.approx(-1.0, abs=1e-9)
+        assert pos.day_gain_cents == -1000  # € 1.000 × −1 %
+
 
 class TestPortefeuille:
     def test_totalen_en_netto_aantal(self, seeded_db: Session) -> None:

@@ -120,6 +120,13 @@ export const IconTrash = svg(
 
 export const IconPlus = svg(<path d="M12 5v14M5 12h14" />)
 
+export const IconSwap = svg(
+  <>
+    <path d="M4 8h13l-3-3" />
+    <path d="M20 16H7l3 3" />
+  </>,
+)
+
 export const IconDots = svg(
   <>
     <circle cx="12" cy="5" r="1.1" />

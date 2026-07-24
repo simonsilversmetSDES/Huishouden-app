@@ -1,15 +1,19 @@
 // Types voor de Weekmenu-API. Veldnamen zijn Engels (bewuste beslissing,
 // consistent met de db-kolommen); alle UI-labels zijn Nederlands.
 
-export type PantryType = 'always_home' | 'pantry' | 'normal'
+export type PantryType = 'always_home' | 'pantry' | 'herbs' | 'normal'
 
 export const PANTRY_LABEL: Record<PantryType, string> = {
   always_home: 'Altijd in huis',
   pantry: 'Voorraadkast',
+  herbs: 'Kruiden',
   normal: 'Normaal',
 }
 
-export const PANTRY_TYPES: PantryType[] = ['normal', 'pantry', 'always_home']
+export const PANTRY_TYPES: PantryType[] = ['normal', 'pantry', 'herbs', 'always_home']
+
+/** pantry_types met een "op voorraad"-toggle en een eigen "Nodig uit …"-checklist. */
+export const STOCKABLE_PANTRY_TYPES: PantryType[] = ['pantry', 'herbs']
 
 export interface Attribute {
   id: number
@@ -37,7 +41,7 @@ export interface Recipe {
   description: string | null
   photo_path: string | null
   source_url: string | null
-  moment_id: number | null
+  moment_ids: number[]
   category_ids: number[]
   time_id: number | null
   difficulty_id: number | null
@@ -49,7 +53,7 @@ export interface RecipeListItem {
   id: number
   title: string
   photo_path: string | null
-  moment_id: number | null
+  moment_ids: number[]
   category_ids: number[]
   time_id: number | null
   difficulty_id: number | null
@@ -87,7 +91,7 @@ export interface RecipePayload {
   photo_url: string | null
   photo_base64: string | null
   photo_media_type: string | null
-  moment_id: number | null
+  moment_ids: number[]
   category_ids: number[]
   time_id: number | null
   difficulty_id: number | null

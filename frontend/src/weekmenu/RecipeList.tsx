@@ -35,7 +35,7 @@ export default function RecipeList() {
       (r) =>
         (needle === '' || r.title.toLowerCase().includes(needle)) &&
         (categoryId === null || r.category_ids.includes(categoryId)) &&
-        (momentId === null || r.moment_id === momentId),
+        (momentId === null || r.moment_ids.includes(momentId)),
     )
   }, [recipes, search, categoryId, momentId])
 
@@ -160,7 +160,7 @@ function RecipePills({
   attributes: NonNullable<ReturnType<typeof useAttributes>['attributes']>
 }) {
   const categories = attributes.categories.filter((c) => recipe.category_ids.includes(c.id))
-  const moment = attributeName(attributes.moments, recipe.moment_id)
+  const moments = attributes.moments.filter((m) => recipe.moment_ids.includes(m.id))
   const time = attributeName(attributes.times, recipe.time_id)
   return (
     <>
@@ -169,7 +169,9 @@ function RecipePills({
           {category.name}
         </ColorPill>
       ))}
-      {moment && <Pill>{moment}</Pill>}
+      {moments.map((m) => (
+        <Pill key={m.id}>{m.name}</Pill>
+      ))}
       {time && <Pill>{time}</Pill>}
     </>
   )

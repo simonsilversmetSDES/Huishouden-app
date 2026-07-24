@@ -102,6 +102,51 @@ def _security(db: Session, name: str = "IWDA", ticker: str | None = "IWDA") -> S
     return sec
 
 
+class TestFetchDayChange:
+    """fetch_prices berekent de dagbeweging uit last vs previousClose in de
+    noteringsmunt — dus zónder wisselkoerseffect, zoals Bolero/Degiro."""
+
+    class _FakeTicker:
+        def __init__(self, fast_info: dict) -> None:
+            self.fast_info = fast_info
+
+        def history(self, **_kwargs):  # type: ignore[no-untyped-def]
+            import pandas as pd
+
+            return pd.DataFrame({"Close": []})
+
+    class _FakeYfinance:
+        """USD-effect (+10 % in USD) plus een USDEUR=X-koers van 0,90."""
+
+        def Ticker(self, symbol: str):  # type: ignore[no-untyped-def]  # noqa: N802
+            if symbol == "USDEUR=X":
+                return TestFetchDayChange._FakeTicker({"last_price": 0.90})
+            return TestFetchDayChange._FakeTicker(
+                {"currency": "USD", "last_price": 110, "previousClose": 100}
+            )
+
+    def test_dagbeweging_zonder_wisselkoerseffect(
+        self, seeded_db: Session, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import sys
+
+        from app.services.prices import fetch_prices
+
+        sec = _security(seeded_db, ticker="IWDA")
+        monkeypatch.setitem(sys.modules, "yfinance", self._FakeYfinance())
+        result = fetch_prices(seeded_db, [sec], date(2026, 7, 24))
+        seeded_db.commit()
+
+        assert result.fetched == 1
+        # +10 % in USD, ongeacht de EUR/USD-koers
+        assert sec.day_change_pct == Decimal("10")
+        # opgeslagen koers blijft in euro: 110 USD × 0,90 = 99 EUR
+        row = seeded_db.scalars(
+            select(SecurityPrice).where(SecurityPrice.security_id == sec.id)
+        ).one()
+        assert row.price == Decimal("99.000000")
+
+
 class TestManualPrice:
     def test_vereist_login(self, client: TestClient) -> None:
         assert client.put("/api/security-prices", json={}).status_code in (401, 422)

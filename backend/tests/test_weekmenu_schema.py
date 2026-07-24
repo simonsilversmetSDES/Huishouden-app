@@ -26,11 +26,11 @@ class TestSeed:
         seed_weekmenu(db)
         db.commit()
         moments = db.scalars(select(RecipeMoment).order_by(RecipeMoment.sort_order))
-        assert [m.name for m in moments] == ["Lunch", "Diner", "Beide"]
+        assert [m.name for m in moments] == ["Lunch", "Diner"]
         assert len(db.scalars(select(RecipeCategory)).all()) == 8
         assert len(db.scalars(select(RecipeTime)).all()) == 3
         assert len(db.scalars(select(RecipeDifficulty)).all()) == 3
-        assert len(db.scalars(select(ShoppingCategory)).all()) == 7
+        assert len(db.scalars(select(ShoppingCategory)).all()) == 8
 
     def test_tweede_run_voegt_niets_toe(self, db: Session) -> None:
         seed_weekmenu(db)

@@ -32,7 +32,7 @@ export default function RecipeNew() {
       title: parsed.title,
       description: parsed.description,
       source_url: parsed.source_url ?? '',
-      moment_id: null,
+      moment_ids: [],
       category_ids: [],
       time_id: null,
       difficulty_id: null,

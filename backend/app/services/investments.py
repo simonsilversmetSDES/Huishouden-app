@@ -138,18 +138,21 @@ def build_portfolio(db: Session, context: Context, today: date | None = None) ->
         price, prev_price = latest.get(security.id, (None, None))
         value_cents = to_cents(price * net) if price is not None else None
         gain_cents = value_cents - cost_cents if value_cents is not None else None
-        # Dagwinst = waarde nu − waarde aan de voorlaatste koers (zelfde afronding
-        # als de waardekolom, dus de bedragen sluiten op elkaar aan).
-        day_gain_cents = (
-            value_cents - to_cents(prev_price * net)
-            if value_cents is not None and prev_price is not None
-            else None
-        )
-        day_gain_pct = (
-            float((price / prev_price - 1) * 100)
-            if price is not None and prev_price is not None and prev_price != ZERO
-            else None
-        )
+        # Dagwinst broker-conform: de dagbeweging (%) van yfinance staat in de
+        # noteringsmunt (last vs previousClose, zónder wisselkoerseffect) en matcht zo
+        # Bolero/Degiro. Het euro-bedrag = huidige waarde × die %. Voor manuele fondsen
+        # zonder day_change_pct valt het terug op het verschil met de vorige koersdag.
+        if security.day_change_pct is not None and value_cents is not None:
+            day_gain_pct = float(security.day_change_pct)
+            day_gain_cents = to_cents(price * net * security.day_change_pct / 100)
+        elif value_cents is not None and prev_price is not None:
+            day_gain_cents = value_cents - to_cents(prev_price * net)
+            day_gain_pct = (
+                float((price / prev_price - 1) * 100) if prev_price != ZERO else None
+            )
+        else:
+            day_gain_cents = None
+            day_gain_pct = None
 
         computed.append(
             {

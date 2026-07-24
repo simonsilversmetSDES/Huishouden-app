@@ -24,6 +24,10 @@ class Security(Base):
     )
     # Referentie-index voor de rendementsvergelijking in de Vermogen-tab (spec §7-uitbreiding).
     is_benchmark: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Laatst opgehaalde dagbeweging in de noteringsmunt (yfinance: last vs previousClose),
+    # broker-conform en dus zónder wisselkoerseffect. NULL = nog nooit opgehaald of een
+    # manueel fonds → de dagwinst valt dan terug op het verschil met de vorige koersdag.
+    day_change_pct: Mapped[Decimal | None] = mapped_column(PreciseDecimal, nullable=True)
 
 
 class SecurityTransaction(Base):

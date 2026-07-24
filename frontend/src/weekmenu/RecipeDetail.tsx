@@ -75,7 +75,7 @@ export default function RecipeDetail() {
   if (recipe === null) return <p className="py-12 text-center text-sm text-ink-3">Laden…</p>
 
   const categories = attributes?.categories.filter((c) => recipe.category_ids.includes(c.id)) ?? []
-  const moment = attributes ? attributeName(attributes.moments, recipe.moment_id) : null
+  const moments = attributes?.moments.filter((m) => recipe.moment_ids.includes(m.id)) ?? []
   const time = attributes ? attributeName(attributes.times, recipe.time_id) : null
   const difficulty = attributes ? attributeName(attributes.difficulties, recipe.difficulty_id) : null
 
@@ -138,7 +138,9 @@ export default function RecipeDetail() {
               {category.name}
             </ColorPill>
           ))}
-          {moment && <Pill>{moment}</Pill>}
+          {moments.map((m) => (
+            <Pill key={m.id}>{m.name}</Pill>
+          ))}
           {time && <Pill>{time}</Pill>}
           {difficulty && <Pill>{difficulty}</Pill>}
         </div>
@@ -172,6 +174,11 @@ export default function RecipeDetail() {
                 {item.pantry_type === 'pantry' && (
                   <span className="shrink-0 rounded-md bg-warn/15 px-1.5 py-0.5 text-[11px] font-medium text-warn">
                     VOORRAAD
+                  </span>
+                )}
+                {item.pantry_type === 'herbs' && (
+                  <span className="shrink-0 rounded-md bg-accent/15 px-1.5 py-0.5 text-[11px] font-medium text-accent">
+                    KRUIDEN
                   </span>
                 )}
               </li>

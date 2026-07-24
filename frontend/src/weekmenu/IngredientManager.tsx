@@ -6,7 +6,7 @@ import { ApiError } from '../api/client'
 import { useIsMobile } from '../lib/useMediaQuery'
 import { listIngredients, patchIngredient } from './api'
 import type { ColorAttribute, IngredientPatch, IngredientRow, PantryType } from './types'
-import { PANTRY_LABEL, PANTRY_TYPES } from './types'
+import { PANTRY_LABEL, PANTRY_TYPES, STOCKABLE_PANTRY_TYPES } from './types'
 import { ErrorCard, inputClass } from './ui'
 import { useAttributes } from './useAttributes'
 
@@ -96,7 +96,8 @@ export default function IngredientManager() {
       )}
       <p className="text-xs text-ink-3">
         <strong>Altijd in huis</strong> komt nooit op de boodschappenlijst;{' '}
-        <strong>Voorraadkast</strong> verschijnt daar onder een eigen rubriek.
+        <strong>Voorraadkast</strong> en <strong>Kruiden</strong> zijn afvinkbaar en
+        verschijnen daar elk onder een eigen rubriek zodra je ze als 'aanvullen' aanduidt.
       </p>
     </div>
   )
@@ -177,7 +178,7 @@ function PantrySelect({
   )
 }
 
-/** Enkel betekenisvol bij pantry_type 'pantry' — anders een neutrale streep. */
+/** Enkel betekenisvol bij een afvinkbaar voorraadtype ('pantry'/'herbs') — anders een streep. */
 function InStockToggle({
   row,
   busy,
@@ -187,7 +188,7 @@ function InStockToggle({
   busy: boolean
   onChange: (inStock: boolean) => void
 }) {
-  if (row.pantry_type !== 'pantry') {
+  if (!STOCKABLE_PANTRY_TYPES.includes(row.pantry_type)) {
     return <span className="text-sm text-ink-3">—</span>
   }
   return (
@@ -323,7 +324,7 @@ function IngredientCards({ rows, shoppingCategories, busyId, onPatch }: RowProps
                 onChange={(shopping_category_id) => void onPatch(row, { shopping_category_id })}
               />
             </div>
-            {row.pantry_type === 'pantry' && (
+            {STOCKABLE_PANTRY_TYPES.includes(row.pantry_type) && (
               <InStockToggle
                 row={row}
                 busy={busy}

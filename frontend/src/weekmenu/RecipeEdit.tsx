@@ -39,7 +39,7 @@ export default function RecipeEdit() {
     title: recipe.title,
     description: recipe.description ?? '',
     source_url: recipe.source_url ?? '',
-    moment_id: recipe.moment_id,
+    moment_ids: recipe.moment_ids,
     category_ids: recipe.category_ids,
     time_id: recipe.time_id,
     difficulty_id: recipe.difficulty_id,

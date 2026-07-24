@@ -123,13 +123,37 @@ def test_put_behoudt_pantry_type_van_bestaand_ingredient(
 
 def test_put_onbekend_attribuut_geeft_400(logged_in: TestClient) -> None:
     created = _create(logged_in)
-    resp = logged_in.put(f"{RECIPES_URL}/{created['id']}", json=_payload(moment_id=999))
+    resp = logged_in.put(f"{RECIPES_URL}/{created['id']}", json=_payload(moment_ids=[999]))
     assert resp.status_code == 400
     assert resp.json()["detail"]["code"] == "unknown_attribute"
 
 
 def test_put_404(logged_in: TestClient) -> None:
     assert logged_in.put(f"{RECIPES_URL}/999", json=_payload()).status_code == 404
+
+
+def _create_moment(client: TestClient, name: str, sort_order: int) -> int:
+    resp = client.post("/api/weekmenu/moments", json={"name": name, "sort_order": sort_order})
+    assert resp.status_code == 201
+    return resp.json()["id"]
+
+
+def test_recept_bewaart_meerdere_momenten(logged_in: TestClient) -> None:
+    """Moment is many-to-many: een recept kan nul, één of meerdere momenten hebben,
+    teruggegeven op sort_order (zoals de relatie is geordend)."""
+    diner = _create_moment(logged_in, "Diner", sort_order=1)
+    lunch = _create_moment(logged_in, "Lunch", sort_order=0)
+
+    created = _create(logged_in, moment_ids=[diner, lunch])
+    assert created["moment_ids"] == [lunch, diner]  # geordend op sort_order
+
+    detail = logged_in.get(f"{RECIPES_URL}/{created['id']}").json()
+    assert detail["moment_ids"] == [lunch, diner]
+
+    # Wijzigen naar geen enkel moment.
+    resp = logged_in.put(f"{RECIPES_URL}/{created['id']}", json=_payload(moment_ids=[]))
+    assert resp.status_code == 200
+    assert resp.json()["moment_ids"] == []
 
 
 # --- Foto's: upload (photo_base64), download (photo_url) en de PUT-statemachine ---
@@ -239,7 +263,7 @@ def test_put_geweigerd_laat_geen_wees_foto_achter(logged_in: TestClient, photo_d
     resp = logged_in.put(
         f"{RECIPES_URL}/{created['id']}",
         json=_payload(
-            moment_id=999,
+            moment_ids=[999],
             photo_base64=base64.b64encode(b"wees-bytes").decode(),
             photo_media_type="image/png",
         ),

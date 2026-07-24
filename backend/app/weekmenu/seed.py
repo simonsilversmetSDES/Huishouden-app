@@ -17,7 +17,7 @@ from app.weekmenu.models import (
     ShoppingCategory,
 )
 
-MOMENTS = ["Lunch", "Diner", "Beide"]
+MOMENTS = ["Lunch", "Diner"]
 
 # (naam, kleur) — startpalet, aanpasbaar via het beheerscherm.
 RECIPE_CATEGORIES = [
@@ -40,6 +40,7 @@ SHOPPING_CATEGORIES = [
     ("Vlees & Vis", "#ef4444"),
     ("Zuivel", "#38bdf8"),
     ("Voorraadkast", "#f59e0b"),
+    ("Kruiden", "#14b8a6"),
     ("Diepvries", "#6366f1"),
     ("Drank", "#a855f7"),
     ("Overig", "#6b7280"),

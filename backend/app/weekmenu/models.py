@@ -19,6 +19,7 @@ from app.models.enums import str_enum
 class PantryType(StrEnum):
     ALWAYS_HOME = "always_home"  # nooit op de boodschappenlijst (peper, zout, olijfolie)
     PANTRY = "pantry"  # onder "Voorraadkast", afvinkbaar
+    HERBS = "herbs"  # onder "Kruiden", afvinkbaar — zelfde principe als PANTRY, eigen checklist
     NORMAL = "normal"
 
 
@@ -93,6 +94,14 @@ recipe_category_links = Table(
 )
 
 
+recipe_moment_links = Table(
+    "recipe_moment_links",
+    Base.metadata,
+    Column("recipe_id", ForeignKey("recipes.id"), primary_key=True),
+    Column("moment_id", ForeignKey("recipe_moments.id"), primary_key=True),
+)
+
+
 class Recipe(Base):
     __tablename__ = "recipes"
 
@@ -102,7 +111,6 @@ class Recipe(Base):
     photo_path: Mapped[str | None] = mapped_column(String)  # enkel bestandsnaam (uuid)
     source_url: Mapped[str | None] = mapped_column(String)
     servings: Mapped[int | None] = mapped_column(Integer)
-    moment_id: Mapped[int | None] = mapped_column(ForeignKey("recipe_moments.id"))
     time_id: Mapped[int | None] = mapped_column(ForeignKey("recipe_times.id"))
     difficulty_id: Mapped[int | None] = mapped_column(ForeignKey("recipe_difficulties.id"))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
@@ -110,7 +118,9 @@ class Recipe(Base):
         DateTime, default=datetime.now, onupdate=datetime.now
     )
 
-    moment: Mapped[RecipeMoment | None] = relationship()
+    moments: Mapped[list["RecipeMoment"]] = relationship(
+        secondary=recipe_moment_links, order_by=RecipeMoment.sort_order
+    )
     categories: Mapped[list["RecipeCategory"]] = relationship(
         secondary=recipe_category_links, order_by=RecipeCategory.sort_order
     )
@@ -124,6 +134,10 @@ class Recipe(Base):
     def category_ids(self) -> list[int]:
         return [category.id for category in self.categories]
 
+    @property
+    def moment_ids(self) -> list[int]:
+        return [moment.id for moment in self.moments]
+
 
 class RecipeIngredient(Base):
     """Koppeltabel recept ↔ ingrediënt; quantity als tekst ("500", "1/2") uit de parsers."""
@@ -133,6 +147,9 @@ class RecipeIngredient(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     recipe_id: Mapped[int] = mapped_column(ForeignKey("recipes.id"))
     ingredient_id: Mapped[int] = mapped_column(ForeignKey("ingredients.id"))
+    # De naam zoals in dít recept geschreven ("verse munt"); het gelinkte canonieke
+    # ingrediënt is de opgeschoonde basis ("munt"). None → val terug op ingredient.name.
+    display_name: Mapped[str | None] = mapped_column(String)
     quantity: Mapped[str | None] = mapped_column(String)
     unit: Mapped[str | None] = mapped_column(String)
     note: Mapped[str | None] = mapped_column(String)

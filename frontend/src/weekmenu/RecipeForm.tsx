@@ -13,7 +13,7 @@ export interface FormInitial {
   title: string
   description: string
   source_url: string
-  moment_id: number | null
+  moment_ids: number[]
   category_ids: number[]
   time_id: number | null
   difficulty_id: number | null
@@ -25,7 +25,7 @@ export const EMPTY_INITIAL: FormInitial = {
   title: '',
   description: '',
   source_url: '',
-  moment_id: null,
+  moment_ids: [],
   category_ids: [],
   time_id: null,
   difficulty_id: null,
@@ -75,7 +75,7 @@ export default function RecipeForm({
   const [title, setTitle] = useState(initial.title)
   const [description, setDescription] = useState(initial.description)
   const [sourceUrl, setSourceUrl] = useState(initial.source_url)
-  const [momentId, setMomentId] = useState(initial.moment_id)
+  const [momentIds, setMomentIds] = useState(initial.moment_ids)
   const [categoryIds, setCategoryIds] = useState(initial.category_ids)
   const [timeId, setTimeId] = useState(initial.time_id)
   const [difficultyId, setDifficultyId] = useState(initial.difficulty_id)
@@ -117,7 +117,7 @@ export default function RecipeForm({
       photo_url: photo.kind === 'url' ? orNull(photo.url) : null,
       photo_base64: photo.kind === 'upload' ? photo.image.base64 : null,
       photo_media_type: photo.kind === 'upload' ? photo.image.mediaType : null,
-      moment_id: momentId,
+      moment_ids: momentIds,
       category_ids: categoryIds,
       time_id: timeId,
       difficulty_id: difficultyId,
@@ -175,13 +175,13 @@ export default function RecipeForm({
           onChange={setCategoryIds}
         />
 
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          <AttributeSelect
-            label="Moment"
-            options={attributes.moments}
-            value={momentId}
-            onChange={setMomentId}
-          />
+        <MomentMultiSelect
+          options={attributes.moments}
+          value={momentIds}
+          onChange={setMomentIds}
+        />
+
+        <div className="grid gap-3 sm:grid-cols-2">
           <AttributeSelect
             label="Tijd"
             options={attributes.times}
@@ -392,6 +392,43 @@ function CategoryMultiSelect({
               style={active ? { backgroundColor: option.color, color: '#fff' } : undefined}
               className={`rounded-full px-3 py-1 text-sm transition-colors pointer-coarse:py-1.5 ${
                 active ? '' : 'bg-raised text-ink-2 hover:bg-page'
+              }`}
+            >
+              {option.name}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function MomentMultiSelect({
+  options,
+  value,
+  onChange,
+}: {
+  options: Attribute[]
+  value: number[]
+  onChange: (ids: number[]) => void
+}) {
+  function toggle(id: number) {
+    onChange(value.includes(id) ? value.filter((v) => v !== id) : [...value, id])
+  }
+  return (
+    <div className="block">
+      <span className="mb-1 block text-xs uppercase tracking-wide text-ink-3">Moment</span>
+      <div className="flex flex-wrap gap-1.5">
+        {options.length === 0 && <p className="text-sm text-ink-3">Nog geen momenten.</p>}
+        {options.map((option) => {
+          const active = value.includes(option.id)
+          return (
+            <button
+              key={option.id}
+              type="button"
+              onClick={() => toggle(option.id)}
+              className={`rounded-full px-3 py-1 text-sm transition-colors pointer-coarse:py-1.5 ${
+                active ? 'bg-accent text-white' : 'bg-raised text-ink-2 hover:bg-page'
               }`}
             >
               {option.name}

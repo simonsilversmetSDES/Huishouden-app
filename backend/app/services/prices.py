@@ -108,14 +108,20 @@ def fetch_prices(db: Session, securities: list[Security], today: date) -> FetchR
         if not security.ticker:
             continue
         try:
-            price, currency = _fetch_one(yfinance, security.ticker)
+            price_local, currency, prev_close = _fetch_one(yfinance, security.ticker)
             rate = None
             if currency and currency.upper() != "EUR":
                 rate = _fx_rate(yfinance, currency.upper(), fx_cache)
-            price = to_eur(price, currency, rate)
+            price = to_eur(price_local, currency, rate)
         except Exception:  # best effort per ticker: netwerk/parse-fouten overslaan
             result.failed.append(security.ticker)
             continue
+        # Dagbeweging in de noteringsmunt (geen wisselkoerseffect), zoals de broker:
+        # (laatste koers − vorige slotkoers) / vorige slotkoers.
+        if prev_close is not None and prev_close != Decimal("0"):
+            security.day_change_pct = ((price_local / prev_close) - 1) * 100
+        else:
+            security.day_change_pct = None
         security.currency = "EUR"  # opgeslagen koers is altijd in euro
         upsert_price(db, security.id, today, price, source="yfinance")
         result.fetched += 1
@@ -261,8 +267,8 @@ def fetch_price_history(
 # interval). Intraday voor 1D/5D, dagkoersen voor de middellange blokken en
 # week-/maandkoersen voor de lange trend — dezelfde verdichting als Yahoo zelf.
 CHART_RANGES: dict[str, tuple[str, str]] = {
-    "1d": ("1d", "5m"),
-    "5d": ("5d", "15m"),
+    "1d": ("1d", "1m"),
+    "5d": ("5d", "5m"),
     "1mo": ("1mo", "1d"),
     "6mo": ("6mo", "1d"),
     "ytd": ("ytd", "1d"),
@@ -318,14 +324,24 @@ def fetch_chart_history(ticker_symbol: str, chart_range: str) -> ChartHistory:
     )
 
 
-def _fetch_one(yfinance: object, ticker_symbol: str) -> tuple[Decimal, str | None]:
+def _fetch_one(
+    yfinance: object, ticker_symbol: str
+) -> tuple[Decimal, str | None, Decimal | None]:
+    """Actuele koers, munt én de vorige slotkoers (previousClose) — alle drie in de
+    noteringsmunt. previousClose is per beurs de officiële slotkoers van de vorige
+    sessie (Yahoo regelt de beurstijdzone), en dus de juiste referentie voor de
+    dagwinst zoals Bolero/Degiro die tonen."""
     ticker = yfinance.Ticker(ticker_symbol)  # type: ignore[attr-defined]
     fast_info = getattr(ticker, "fast_info", None)
     currency = fast_info.get("currency") if fast_info is not None else None
+    raw_prev = fast_info.get("previousClose") if fast_info is not None else None
+    prev_close = Decimal(str(raw_prev)) if raw_prev is not None else None
+    if prev_close is not None and prev_close <= 0:
+        prev_close = None
     raw = _last_price(ticker)
     if raw is None:
         raise ValueError("geen koers beschikbaar")
     price = Decimal(str(raw))
     if price <= 0:
         raise ValueError("koers is niet positief")
-    return price, (currency if isinstance(currency, str) else None)
+    return price, (currency if isinstance(currency, str) else None), prev_close

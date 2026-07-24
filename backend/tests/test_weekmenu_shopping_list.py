@@ -293,6 +293,105 @@ def test_pantry_check_vereist_login(client: TestClient) -> None:
     assert client.get(PANTRY_CHECK_URL, params={"start": MONDAY.isoformat()}).status_code == 401
 
 
+# --- GET /herbs-check — "Nodig uit kruidenkast" (zelfde principe als pantry-check) ---
+
+HERBS_CHECK_URL = "/api/weekmenu/herbs-check"
+
+
+def test_herbs_en_pantry_check_zijn_gescheiden_lijsten(
+    logged_in: TestClient, db: Session
+) -> None:
+    """PANTRY-ingrediënten horen enkel in /pantry-check, HERBS enkel in /herbs-check."""
+    _category(db, "Voorraadkast")
+    _category(db, "Kruiden", sort_order=1)
+    _ingredient(db, "Rijst", pantry_type=PantryType.PANTRY)
+    _ingredient(db, "Basilicum", pantry_type=PantryType.HERBS)
+    recipe_id = _create_recipe(
+        logged_in,
+        "Risotto",
+        [
+            {"name": "Rijst", "quantity": "200", "unit": "g"},
+            {"name": "Basilicum", "quantity": "1", "unit": "bosje"},
+        ],
+    )
+    _plan_day(logged_in, MONDAY, recipe_id)
+
+    pantry = logged_in.get(PANTRY_CHECK_URL, params={"start": MONDAY.isoformat()}).json()
+    herbs = logged_in.get(HERBS_CHECK_URL, params={"start": MONDAY.isoformat()}).json()
+    assert [row["name"] for row in pantry] == ["Rijst"]
+    assert [row["name"] for row in herbs] == ["Basilicum"]
+
+
+def test_herbs_op_voorraad_verschijnt_niet_in_boodschappenlijst(
+    logged_in: TestClient, db: Session
+) -> None:
+    """HERBS gedraagt zich als PANTRY: op voorraad (default) → niet op de lijst."""
+    _category(db, "Kruiden")
+    _ingredient(db, "Oregano", pantry_type=PantryType.HERBS)
+    recipe_id = _create_recipe(
+        logged_in, "Pizza", [{"name": "Oregano", "quantity": "1", "unit": "el"}]
+    )
+    _plan_day(logged_in, MONDAY, recipe_id)
+
+    assert logged_in.get(LIST_URL, params={"start": MONDAY.isoformat()}).json() == []
+
+
+def test_herbs_nodig_gaat_naar_kruiden_categorie_ondanks_eigen_categorie(
+    logged_in: TestClient, db: Session
+) -> None:
+    """Weergave-override: een HERBS-ingrediënt dat nodig is, groepeert onder "Kruiden"
+    ongeacht z'n eigen winkelcategorie — analoog aan PANTRY → "Voorraadkast"."""
+    groenten = _category(db, "Groenten & Fruit", sort_order=0)
+    kruiden = _category(db, "Kruiden", sort_order=1)
+    ingredient = _ingredient(
+        db, "Peterselie", pantry_type=PantryType.HERBS, shopping_category_id=groenten.id
+    )
+    recipe_id = _create_recipe(
+        logged_in, "Tabouleh", [{"name": "Peterselie", "quantity": "1", "unit": "bosje"}]
+    )
+    _plan_day(logged_in, MONDAY, recipe_id)
+
+    resp = logged_in.patch(f"/api/weekmenu/ingredients/{ingredient.id}", json={"in_stock": False})
+    assert resp.status_code == 200
+
+    data = logged_in.get(LIST_URL, params={"start": MONDAY.isoformat()}).json()
+    assert len(data) == 1
+    assert data[0]["name"] == "Peterselie"
+    assert data[0]["category_id"] == kruiden.id
+    assert data[0]["in_stock"] is False
+
+
+def test_herbs_check_vereist_login(client: TestClient) -> None:
+    assert client.get(HERBS_CHECK_URL, params={"start": MONDAY.isoformat()}).status_code == 401
+
+
+# --- Boodschappenlijst toont de geschreven vorm (canonieke basis bij conflict) ---
+
+
+def test_shopping_list_toont_geschreven_vorm(logged_in: TestClient, db: Session) -> None:
+    _category(db, "Overig")
+    recipe_id = _create_recipe(
+        logged_in, "Stoofpot", [{"name": "dikke wortelen", "quantity": "3", "unit": "stuks"}]
+    )
+    _plan_day(logged_in, MONDAY, recipe_id)
+
+    data = logged_in.get(LIST_URL, params={"start": MONDAY.isoformat()}).json()
+    assert len(data) == 1
+    assert data[0]["name"] == "dikke wortelen"  # geschreven vorm, niet canoniek "wortelen"
+
+
+def test_shopping_list_canonieke_basis_bij_conflict(logged_in: TestClient, db: Session) -> None:
+    _category(db, "Overig")
+    a = _create_recipe(logged_in, "A", [{"name": "wortels", "quantity": "2", "unit": "stuks"}])
+    b = _create_recipe(logged_in, "B", [{"name": "dikke wortelen", "quantity": "3", "unit": "stuks"}])
+    _plan_day(logged_in, MONDAY, a)
+    _plan_day(logged_in, date(2026, 7, 21), b)
+
+    data = logged_in.get(LIST_URL, params={"start": MONDAY.isoformat()}).json()
+    assert len(data) == 1  # beide vallen onder canoniek "wortelen"
+    assert data[0]["name"] == "wortelen"  # verschillende geschreven vormen → canonieke basis
+
+
 # --- Handmatige items ---
 
 

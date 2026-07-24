@@ -20,6 +20,7 @@ from app.database import get_db
 from app.weekmenu import crud, parsing, photos
 from app.weekmenu.attributes import attributes_router
 from app.weekmenu.errors import WeekmenuError, to_http
+from app.weekmenu.models import PantryType
 from app.weekmenu.schemas import (
     IngredientOut,
     IngredientPatch,
@@ -219,7 +220,14 @@ def get_shopping_list(start: date, _user: CurrentUser, db: DbDep) -> list[Shoppi
 def get_pantry_check(start: date, _user: CurrentUser, db: DbDep) -> list[PantryCheckItemOut]:
     """De "Nodig uit voorraadkast"-checklist: alle pantry-ingrediënten van deze week,
     ongeacht in_stock. Aanvinken hier bepaalt wat er in de boodschappenlijst komt."""
-    return crud.get_pantry_check(db, start)
+    return crud.get_pantry_check(db, start, PantryType.PANTRY)
+
+
+@router.get("/herbs-check", response_model=list[PantryCheckItemOut])
+def get_herbs_check(start: date, _user: CurrentUser, db: DbDep) -> list[PantryCheckItemOut]:
+    """De "Nodig uit kruidenkast"-checklist: alle kruiden-ingrediënten van deze week,
+    ongeacht in_stock. Zelfde principe als /pantry-check, maar voor het HERBS-type."""
+    return crud.get_pantry_check(db, start, PantryType.HERBS)
 
 
 @router.post("/shopping-list/items", response_model=ShoppingListItemOut, status_code=201)

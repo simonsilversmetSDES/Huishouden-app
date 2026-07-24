@@ -3,7 +3,8 @@
 // PUT /api/weekmenu/week/{datum} (geen aparte "opslaan"-knop nodig).
 
 import { useCallback, useEffect, useState } from 'react'
-import { IconTrash, IconUtensils } from '../components/icons'
+import { Link } from 'react-router-dom'
+import { IconSwap, IconTrash, IconUtensils } from '../components/icons'
 import { formatDate } from '../lib/format'
 import { getWeek, photoUrl, putWeekDay } from './api'
 import RecipePickerModal from './RecipePickerModal'
@@ -192,22 +193,31 @@ function DayRow({
       <div className="mt-2">
         {day.recipe_id !== null ? (
           <div className="flex items-center gap-3 rounded-lg bg-raised p-2">
-            {day.recipe_photo_path ? (
-              <img
-                src={photoUrl(day.recipe_photo_path)}
-                alt=""
-                className="size-10 shrink-0 rounded-md object-cover"
-              />
-            ) : (
-              <div className="flex size-10 shrink-0 items-center justify-center rounded-md bg-page text-ink-3">
-                <IconUtensils className="size-4" />
-              </div>
-            )}
+            <Link
+              to={`/weekmenu/recepten/${day.recipe_id}`}
+              className="flex min-w-0 flex-1 items-center gap-3"
+            >
+              {day.recipe_photo_path ? (
+                <img
+                  src={photoUrl(day.recipe_photo_path)}
+                  alt=""
+                  className="size-10 shrink-0 rounded-md object-cover"
+                />
+              ) : (
+                <div className="flex size-10 shrink-0 items-center justify-center rounded-md bg-page text-ink-3">
+                  <IconUtensils className="size-4" />
+                </div>
+              )}
+              <span className="min-w-0 flex-1 truncate text-sm hover:underline">
+                {day.recipe_title}
+              </span>
+            </Link>
             <button
               onClick={onPickRecipe}
-              className="min-w-0 flex-1 truncate text-left text-sm hover:underline"
+              aria-label="Ander recept kiezen"
+              className="shrink-0 rounded-lg p-1.5 text-ink-3 transition-colors hover:bg-page hover:text-ink-2"
             >
-              {day.recipe_title}
+              <IconSwap className="size-4" />
             </button>
             <div className="flex shrink-0 items-center gap-1 rounded-md bg-page px-1">
               <button

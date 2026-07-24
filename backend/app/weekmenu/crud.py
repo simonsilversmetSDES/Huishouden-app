@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.config import Settings
 from app.weekmenu import ingredient_categorization
 from app.weekmenu.errors import WeekmenuError
+from app.weekmenu.ingredient_names import canonicalize_ingredient_name, is_herb
 from app.weekmenu.models import (
     Ingredient,
     PantryType,
@@ -45,15 +46,21 @@ def normalize_ingredient_name(name: str) -> str:
 
 
 def get_or_create_ingredient(db: Session, name: str) -> tuple[Ingredient, bool]:
-    """Match op normalized_name: bestaand → hergebruiken (pantry_type en
-    winkelcategorie blijven staan); nieuw → aanmaken met pantry_type = normal.
-    De bool geeft aan of het net is aangemaakt (voor de auto-categorisering)."""
-    normalized = normalize_ingredient_name(name)
+    """Canonicaliseer de naam (voorvoegsels weg, synoniemen samengevoegd) en match op
+    normalized_name: bestaand → hergebruiken (pantry_type en winkelcategorie blijven
+    staan); nieuw → aanmaken met pantry_type = normal. De bool geeft aan of het net is
+    aangemaakt (voor de auto-categorisering). De GESCHREVEN naam bewaart de aanroeper
+    apart als display_name op de koppelrij."""
+    canonical = canonicalize_ingredient_name(name)
+    normalized = normalize_ingredient_name(canonical)
     existing = db.scalar(select(Ingredient).where(Ingredient.normalized_name == normalized))
     if existing is not None:
         return existing, False
+    # Nieuw kruid/specerij komt meteen als 'herbs' binnen (zelfde detectie als de
+    # opschoonmigratie); al de rest start als 'normal'.
+    pantry_type = PantryType.HERBS if is_herb(canonical) else PantryType.NORMAL
     ingredient = Ingredient(
-        name=name.strip(), normalized_name=normalized, pantry_type=PantryType.NORMAL
+        name=canonical, normalized_name=normalized, pantry_type=pantry_type
     )
     db.add(ingredient)
     db.flush()  # id nodig vóór de koppelrijen
@@ -63,12 +70,14 @@ def get_or_create_ingredient(db: Session, name: str) -> tuple[Ingredient, bool]:
 def _check_attribute_ids(db: Session, data: RecipeCreate) -> None:
     """Onbekende FK-ids → nette 400 in plaats van een IntegrityError-500."""
     for model, value, label in (
-        (RecipeMoment, data.moment_id, "moment_id"),
         (RecipeTime, data.time_id, "time_id"),
         (RecipeDifficulty, data.difficulty_id, "difficulty_id"),
     ):
         if value is not None and db.get(model, value) is None:
             raise WeekmenuError(400, "unknown_attribute", f"Onbekende {label}: {value}.")
+    for moment_id in data.moment_ids:
+        if db.get(RecipeMoment, moment_id) is None:
+            raise WeekmenuError(400, "unknown_attribute", f"Onbekende moment_id: {moment_id}.")
     for category_id in data.category_ids:
         if db.get(RecipeCategory, category_id) is None:
             raise WeekmenuError(
@@ -80,6 +89,12 @@ def _resolve_categories(db: Session, category_ids: list[int]) -> list[RecipeCate
     """Dedupe met behoud van volgorde; ids zijn al gevalideerd door _check_attribute_ids."""
     unique_ids = list(dict.fromkeys(category_ids))
     return [db.get(RecipeCategory, category_id) for category_id in unique_ids]
+
+
+def _resolve_moments(db: Session, moment_ids: list[int]) -> list[RecipeMoment]:
+    """Dedupe met behoud van volgorde; ids zijn al gevalideerd door _check_attribute_ids."""
+    unique_ids = list(dict.fromkeys(moment_ids))
+    return [db.get(RecipeMoment, moment_id) for moment_id in unique_ids]
 
 
 def _build_ingredient_links(
@@ -101,6 +116,7 @@ def _build_ingredient_links(
         links.append(
             RecipeIngredient(
                 ingredient=ingredient,
+                display_name=item.name.strip(),  # geschreven naam blijft in het recept staan
                 quantity=item.quantity,
                 unit=item.unit,
                 note=item.note,
@@ -143,12 +159,12 @@ def create_recipe(
         description=data.description,
         photo_path=photo_path,
         source_url=data.source_url,
-        moment_id=data.moment_id,
         time_id=data.time_id,
         difficulty_id=data.difficulty_id,
         servings=data.servings,
     )
     db.add(recipe)
+    recipe.moments = _resolve_moments(db, data.moment_ids)
     recipe.categories = _resolve_categories(db, data.category_ids)
     links, new_ingredients = _build_ingredient_links(db, data.ingredients)
     recipe.ingredients = links
@@ -207,7 +223,7 @@ def update_recipe(
     recipe.title = data.title.strip()
     recipe.description = data.description
     recipe.source_url = data.source_url
-    recipe.moment_id = data.moment_id
+    recipe.moments = _resolve_moments(db, data.moment_ids)
     recipe.categories = _resolve_categories(db, data.category_ids)
     recipe.time_id = data.time_id
     recipe.difficulty_id = data.difficulty_id
@@ -390,26 +406,42 @@ def upsert_week_day(db: Session, day: date, data: WeekPlanDayIn) -> WeekPlanDayO
 
 
 VOORRAADKAST_CATEGORY_NAME = "Voorraadkast"
+KRUIDEN_CATEGORY_NAME = "Kruiden"
 OVERIG_CATEGORY_NAME = "Overig"
+
+# pantry_type → naam van de winkelcategorie waaronder die groep altijd gegroepeerd
+# wordt in de boodschappenlijst (weergave-override; het ingrediënt z'n eigen
+# shopping_category_id blijft ongemoeid). Bestaat die categorie niet, dan valt de
+# terugval-keten in _resolve_shopping_category_id gewoon door.
+_PANTRY_TYPE_CATEGORY_OVERRIDE = {
+    PantryType.PANTRY: VOORRAADKAST_CATEGORY_NAME,
+    PantryType.HERBS: KRUIDEN_CATEGORY_NAME,
+}
+
+# pantry_types met een "op voorraad"-toggle: ze verschijnen pas op de boodschappenlijst
+# zodra in_stock is uitgezet, en hebben elk hun eigen "Nodig uit …"-checklist.
+STOCKABLE_PANTRY_TYPES = (PantryType.PANTRY, PantryType.HERBS)
 
 
 def _resolve_shopping_category_id(db: Session, ingredient: Ingredient) -> int:
     """Terugval-keten voor de NOT NULL category_id op ShoppingListItem.
 
-    ``pantry_type == PANTRY`` groepeert altijd onder "Voorraadkast" (weergave-override —
-    ``ingredient.shopping_category_id`` blijft ongemoeid). Bestaat die categorie niet
-    meer (verwijderd via Beheer), dan valt terug op het ingrediënt z'n eigen categorie,
-    dan op "Overig", dan op de eerste categorie op ``sort_order``. Is er geen enkele
-    ``shopping_category`` meer over, dan kan de rij niet opgeslagen worden.
+    ``pantry_type == PANTRY`` groepeert altijd onder "Voorraadkast" en ``HERBS`` onder
+    "Kruiden" (weergave-override — ``ingredient.shopping_category_id`` blijft ongemoeid).
+    Bestaat die categorie niet meer (verwijderd via Beheer), dan valt terug op het
+    ingrediënt z'n eigen categorie, dan op "Overig", dan op de eerste categorie op
+    ``sort_order``. Is er geen enkele ``shopping_category`` meer over, dan kan de rij niet
+    opgeslagen worden.
     """
 
     def _by_name(name: str) -> ShoppingCategory | None:
         return db.scalar(select(ShoppingCategory).where(ShoppingCategory.name == name))
 
-    if ingredient.pantry_type == PantryType.PANTRY:
-        pantry_category = _by_name(VOORRAADKAST_CATEGORY_NAME)
-        if pantry_category is not None:
-            return pantry_category.id
+    override_name = _PANTRY_TYPE_CATEGORY_OVERRIDE.get(ingredient.pantry_type)
+    if override_name is not None:
+        override_category = _by_name(override_name)
+        if override_category is not None:
+            return override_category.id
 
     if ingredient.shopping_category_id is not None:
         return ingredient.shopping_category_id
@@ -434,45 +466,60 @@ def _format_quantity_part(quantity: str | None, unit: str | None) -> str | None:
     return part or None
 
 
-def _week_ingredient_contributions(db: Session, start: date) -> dict[int, list[str | None]]:
-    """Per ingrediënt (behalve ``always_home``) de losse hoeveelheid-bijdragen voor
-    deze week. Eenzelfde recept dat 2× gepland staat, telt 2× mee. Bewust GEEN
-    samenvoeging/optelling over eenheden heen — zie ``sync_and_get_shopping_list``."""
+def _pick_display_name(display_names: list[str | None], canonical_name: str) -> str:
+    """Toon de geschreven vorm als alle bijdragen dezelfde gebruiken; bij verschillende
+    geschreven vormen op dezelfde canonieke basis → de canonieke naam (keuze Simon)."""
+    distinct = {name for name in display_names if name}
+    if len(distinct) == 1:
+        return next(iter(distinct))
+    return canonical_name
+
+
+def _week_ingredient_contributions(
+    db: Session, start: date
+) -> dict[int, list[tuple[str | None, str | None]]]:
+    """Per ingrediënt (behalve ``always_home``) de losse bijdragen voor deze week als
+    (hoeveelheid-deel, geschreven naam). Eenzelfde recept dat 2× gepland staat, telt 2×
+    mee. Bewust GEEN samenvoeging/optelling over eenheden heen — zie
+    ``sync_and_get_shopping_list``."""
     end = start + timedelta(days=6)
     entries = db.scalars(
         select(WeekPlanEntry).where(
             WeekPlanEntry.date.between(start, end), WeekPlanEntry.recipe_id.is_not(None)
         )
     )
-    contributions: dict[int, list[str | None]] = {}
+    contributions: dict[int, list[tuple[str | None, str | None]]] = {}
     for entry in entries:
         for link in entry.recipe.ingredients:
             if link.ingredient.pantry_type == PantryType.ALWAYS_HOME:
                 continue
             contributions.setdefault(link.ingredient_id, []).append(
-                _format_quantity_part(link.quantity, link.unit)
+                (_format_quantity_part(link.quantity, link.unit), link.display_name)
             )
     return contributions
 
 
-def get_pantry_check(db: Session, start: date) -> list[PantryCheckItemOut]:
-    """De volledige "Nodig uit voorraadkast"-checklist: alle pantry-ingrediënten die
-    ergens in een recept van deze week zitten, ongeacht ``in_stock`` — dit is een
-    leesfunctie, ze muteert niets. De gebruiker duidt hier aan wat er niet (meer) op
-    voorraad is; ``sync_and_get_shopping_list`` neemt dat vervolgens over in de
-    boodschappenlijst."""
+def get_pantry_check(
+    db: Session, start: date, pantry_type: PantryType = PantryType.PANTRY
+) -> list[PantryCheckItemOut]:
+    """De volledige "Nodig uit …"-checklist voor één afvinkbaar voorraadtype: alle
+    ingrediënten van dat type (``PANTRY`` → "Nodig uit voorraadkast", ``HERBS`` → "Nodig
+    uit kruidenkast") die ergens in een recept van deze week zitten, ongeacht
+    ``in_stock`` — dit is een leesfunctie, ze muteert niets. De gebruiker duidt hier aan
+    wat er niet (meer) op voorraad is; ``sync_and_get_shopping_list`` neemt dat vervolgens
+    over in de boodschappenlijst."""
     contributions = _week_ingredient_contributions(db, start)
     items: list[PantryCheckItemOut] = []
     for ingredient_id, parts in contributions.items():
         ingredient = db.get(Ingredient, ingredient_id)
         assert ingredient is not None  # FK garandeert bestaan
-        if ingredient.pantry_type != PantryType.PANTRY:
+        if ingredient.pantry_type != pantry_type:
             continue
-        quantity = " + ".join(p for p in parts if p is not None) or None
+        quantity = " + ".join(q for q, _ in parts if q is not None) or None
         items.append(
             PantryCheckItemOut(
                 ingredient_id=ingredient_id,
-                name=ingredient.name,
+                name=_pick_display_name([d for _, d in parts], ingredient.name),
                 quantity=quantity,
                 in_stock=ingredient.in_stock,
             )
@@ -511,11 +558,11 @@ def sync_and_get_shopping_list(db: Session, start: date) -> list[ShoppingListIte
     ontbrekende winkelcategorie (zie ``_resolve_shopping_category_id``) niet halverwege
     een gedeeltelijke wijziging achterlaat.
 
-    Een pantry-ingrediënt (``pantry_type == PANTRY``) komt hier enkel in terecht als
-    ``in_stock`` is uitgezet — zolang het nog op voorraad staat, hoort het niet op de
-    boodschappenlijst maar enkel in de "Nodig uit voorraadkast"-checklist (zie
-    ``get_pantry_check``). Dat voorkomt dat de lijst vol komt te staan met dingen die je
-    toch al hebt.
+    Een afvinkbaar voorraad-ingrediënt (``pantry_type`` in ``STOCKABLE_PANTRY_TYPES``:
+    ``PANTRY`` of ``HERBS``) komt hier enkel in terecht als ``in_stock`` is uitgezet —
+    zolang het nog op voorraad staat, hoort het niet op de boodschappenlijst maar enkel in
+    de bijhorende "Nodig uit …"-checklist (zie ``get_pantry_check``). Dat voorkomt dat de
+    lijst vol komt te staan met dingen die je toch al hebt.
     """
     contributions = _week_ingredient_contributions(db, start)
 
@@ -523,11 +570,12 @@ def sync_and_get_shopping_list(db: Session, start: date) -> list[ShoppingListIte
     for ingredient_id, parts in contributions.items():
         ingredient = db.get(Ingredient, ingredient_id)
         assert ingredient is not None  # FK garandeert bestaan
-        if ingredient.pantry_type == PantryType.PANTRY and ingredient.in_stock:
+        if ingredient.pantry_type in STOCKABLE_PANTRY_TYPES and ingredient.in_stock:
             continue
         category_id = _resolve_shopping_category_id(db, ingredient)
-        quantity = " + ".join(p for p in parts if p is not None) or None
-        resolved[ingredient_id] = (ingredient.name, category_id, quantity)
+        quantity = " + ".join(q for q, _ in parts if q is not None) or None
+        name = _pick_display_name([d for _, d in parts], ingredient.name)
+        resolved[ingredient_id] = (name, category_id, quantity)
 
     existing = {
         item.ingredient_id: item
@@ -605,14 +653,16 @@ def delete_shopping_list_item(db: Session, item_id: int) -> None:
 
 
 def recipe_to_out(recipe: Recipe) -> RecipeOut:
-    """Handmatige serialisatie: naam + pantry_type komen van het canonieke ingrediënt."""
+    """Handmatige serialisatie: ``name`` is de geschreven naam (display_name, met
+    terugval op de canonieke ingrediëntnaam voor oude data); pantry_type komt van het
+    canonieke ingrediënt."""
     return RecipeOut(
         id=recipe.id,
         title=recipe.title,
         description=recipe.description,
         photo_path=recipe.photo_path,
         source_url=recipe.source_url,
-        moment_id=recipe.moment_id,
+        moment_ids=recipe.moment_ids,
         category_ids=recipe.category_ids,
         time_id=recipe.time_id,
         difficulty_id=recipe.difficulty_id,
@@ -621,7 +671,7 @@ def recipe_to_out(recipe: Recipe) -> RecipeOut:
             RecipeIngredientOut(
                 id=link.id,
                 ingredient_id=link.ingredient_id,
-                name=link.ingredient.name,
+                name=link.display_name or link.ingredient.name,
                 pantry_type=link.ingredient.pantry_type,
                 quantity=link.quantity,
                 unit=link.unit,

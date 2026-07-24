@@ -25,6 +25,7 @@ from app.weekmenu.models import (
     ShoppingCategory,
     ShoppingListItem,
     recipe_category_links,
+    recipe_moment_links,
 )
 from app.weekmenu.schemas import AttributeIn, AttributeOut, ColorAttributeIn, ColorAttributeOut
 
@@ -46,7 +47,9 @@ class _Resource:
 
 
 _RESOURCES = (
-    _Resource("/moments", RecipeMoment, False, ((Recipe, "moment_id"),), "recept(en)"),
+    _Resource(
+        "/moments", RecipeMoment, False, ((recipe_moment_links, "moment_id"),), "recept(en)"
+    ),
     _Resource(
         "/categories", RecipeCategory, True, ((recipe_category_links, "category_id"),), "recept(en)"
     ),

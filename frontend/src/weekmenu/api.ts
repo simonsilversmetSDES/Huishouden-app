@@ -104,3 +104,6 @@ export const deleteShoppingListItem = (id: number) =>
 
 export const getPantryCheck = (start: string) =>
   api<PantryCheckItem[]>(`${BASE}/pantry-check?start=${start}`)
+
+export const getHerbsCheck = (start: string) =>
+  api<PantryCheckItem[]>(`${BASE}/herbs-check?start=${start}`)

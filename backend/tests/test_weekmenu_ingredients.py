@@ -61,6 +61,14 @@ def test_patch_pantry_type(logged_in: TestClient, db: Session, ui_id: int) -> No
     assert db.get(Ingredient, ui_id).pantry_type == PantryType.PANTRY
 
 
+def test_patch_pantry_type_herbs(logged_in: TestClient, db: Session, ui_id: int) -> None:
+    resp = logged_in.patch(f"{INGREDIENTS_URL}/{ui_id}", json={"pantry_type": "herbs"})
+    assert resp.status_code == 200
+    assert resp.json()["pantry_type"] == "herbs"
+    db.expire_all()
+    assert db.get(Ingredient, ui_id).pantry_type == PantryType.HERBS
+
+
 def test_patch_winkelcategorie_zetten_en_expliciet_nullen(
     logged_in: TestClient, db: Session, ui_id: int
 ) -> None:
@@ -132,6 +140,40 @@ def test_patch_onbekende_winkelcategorie_geeft_400(logged_in: TestClient, ui_id:
 
 def test_patch_404(logged_in: TestClient) -> None:
     assert logged_in.patch(f"{INGREDIENTS_URL}/999", json={"name": "X"}).status_code == 404
+
+
+def test_recept_bewaart_geschreven_naam_maar_canoniek_ingredient(
+    logged_in: TestClient, db: Session
+) -> None:
+    """"Enkele takjes verse munt" blijft zichtbaar in het recept (display_name), maar
+    valt onder het canonieke kruid "munt" (pantry_type herbs, auto bij aanmaak)."""
+    resp = logged_in.post(
+        RECIPES_URL,
+        json={"title": "Muntthee", "ingredients": [{"name": "Enkele takjes verse munt"}]},
+    )
+    assert resp.status_code == 201
+    ingredient_out = resp.json()["ingredients"][0]
+    assert ingredient_out["name"] == "Enkele takjes verse munt"  # geschreven vorm in recept
+    assert ingredient_out["pantry_type"] == "herbs"  # canoniek 'munt' → kruid
+
+    rows = logged_in.get(INGREDIENTS_URL).json()
+    munt = [r for r in rows if r["name"] == "munt"]
+    assert len(munt) == 1  # canoniek opgeslagen als "munt", niet "Enkele takjes verse munt"
+    assert munt[0]["pantry_type"] == "herbs"
+
+
+def test_varianten_vallen_onder_hetzelfde_canonieke_ingredient(
+    logged_in: TestClient, db: Session
+) -> None:
+    """"wortels", "dikke wortelen" en "Wortel" delen één canoniek ingrediënt "wortelen"."""
+    for name in ("wortels", "dikke wortelen", "Wortel"):
+        resp = logged_in.post(RECIPES_URL, json={"title": f"R {name}", "ingredients": [{"name": name}]})
+        assert resp.status_code == 201
+
+    rows = logged_in.get(INGREDIENTS_URL).json()
+    wortelen = [r for r in rows if r["name"] == "wortelen"]
+    assert len(wortelen) == 1
+    assert wortelen[0]["recipe_count"] == 3  # alle drie de recepten hangen aan één ingrediënt
 
 
 def test_ingredienten_vereisen_login(client: TestClient) -> None:

@@ -14,6 +14,7 @@ import { IconTrash } from '../components/icons'
 import {
   addShoppingListItem,
   deleteShoppingListItem,
+  getHerbsCheck,
   getPantryCheck,
   getShoppingList,
   patchIngredient,
@@ -39,6 +40,7 @@ export default function ShoppingList() {
   const { attributes } = useAttributes()
   const [items, setItems] = useState<ShoppingListItemRow[] | null>(null)
   const [pantryCheck, setPantryCheck] = useState<PantryCheckItem[] | null>(null)
+  const [herbsCheck, setHerbsCheck] = useState<PantryCheckItem[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<number | null>(null)
   const [pantryBusyId, setPantryBusyId] = useState<number | null>(null)
@@ -51,10 +53,15 @@ export default function ShoppingList() {
 
   const load = useCallback(() => {
     setError(null)
-    Promise.all([getShoppingList(MONDAY_ISO), getPantryCheck(MONDAY_ISO)])
-      .then(([shoppingList, pantry]) => {
+    Promise.all([
+      getShoppingList(MONDAY_ISO),
+      getPantryCheck(MONDAY_ISO),
+      getHerbsCheck(MONDAY_ISO),
+    ])
+      .then(([shoppingList, pantry, herbs]) => {
         setItems(shoppingList)
         setPantryCheck(pantry)
+        setHerbsCheck(herbs)
       })
       .catch(() => setError('Boodschappenlijst laden mislukt — probeer opnieuw'))
   }, [])
@@ -149,43 +156,24 @@ export default function ShoppingList() {
     }
   }
 
-  const neededCount = pantryCheck?.filter((item) => !item.in_stock).length ?? 0
-
   return (
     <div className="space-y-4">
       <h1 className="text-lg font-semibold">Boodschappen</h1>
 
-      {pantryCheck !== null && pantryCheck.length > 0 && (
-        <details className="rounded-2xl border border-edge bg-surface p-5 open:pb-3">
-          <summary className="cursor-pointer text-sm font-medium">
-            Nodig uit voorraadkast{neededCount > 0 ? ` (${neededCount})` : ''}
-          </summary>
-          <p className="mt-2 text-xs text-ink-3">
-            Vink aan wat niet meer op voorraad is — dat komt dan in de boodschappenlijst
-            hieronder.
-          </p>
-          <ul className="mt-3 divide-y divide-line">
-            {pantryCheck.map((item) => (
-              <li key={item.ingredient_id} className="flex items-center gap-3 py-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={!item.in_stock}
-                  disabled={pantryBusyId === item.ingredient_id}
-                  onChange={() => void toggleNeeded(item)}
-                  aria-label={`${item.name} nodig uit voorraadkast`}
-                  className="size-4 shrink-0 rounded border-edge accent-accent"
-                />
-                <span className="min-w-0 flex-1 truncate">
-                  {item.name}
-                  {item.quantity && (
-                    <span className="ml-1.5 text-xs text-ink-3">({item.quantity})</span>
-                  )}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </details>
-      )}
+      <PantryChecklist
+        title="Nodig uit voorraadkast"
+        label="nodig uit voorraadkast"
+        items={pantryCheck}
+        busyId={pantryBusyId}
+        onToggle={toggleNeeded}
+      />
+      <PantryChecklist
+        title="Nodig uit kruidenkast"
+        label="nodig uit kruidenkast"
+        items={herbsCheck}
+        busyId={pantryBusyId}
+        onToggle={toggleNeeded}
+      />
 
       <section className="rounded-2xl border border-edge bg-surface p-5">
         <h2 className="text-sm font-medium">Item toevoegen</h2>
@@ -296,5 +284,57 @@ export default function ShoppingList() {
           </div>
         ))}
     </div>
+  )
+}
+
+/** Eén inklapbare "Nodig uit …"-checklist (voorraadkast of kruidenkast): toont alle
+ * afvinkbare voorraad-ingrediënten van deze week; aanvinken zet ze op de lijst. */
+function PantryChecklist({
+  title,
+  label,
+  items,
+  busyId,
+  onToggle,
+}: {
+  title: string
+  label: string
+  items: PantryCheckItem[] | null
+  busyId: number | null
+  onToggle: (item: PantryCheckItem) => void
+}) {
+  if (items === null || items.length === 0) return null
+  const neededCount = items.filter((item) => !item.in_stock).length
+
+  return (
+    <details className="rounded-2xl border border-edge bg-surface p-5 open:pb-3">
+      <summary className="cursor-pointer text-sm font-medium">
+        {title}
+        {neededCount > 0 ? ` (${neededCount})` : ''}
+      </summary>
+      <p className="mt-2 text-xs text-ink-3">
+        Vink aan wat niet meer op voorraad is — dat komt dan in de boodschappenlijst
+        hieronder.
+      </p>
+      <ul className="mt-3 divide-y divide-line">
+        {items.map((item) => (
+          <li key={item.ingredient_id} className="flex items-center gap-3 py-2 text-sm">
+            <input
+              type="checkbox"
+              checked={!item.in_stock}
+              disabled={busyId === item.ingredient_id}
+              onChange={() => void onToggle(item)}
+              aria-label={`${item.name} ${label}`}
+              className="size-4 shrink-0 rounded border-edge accent-accent"
+            />
+            <span className="min-w-0 flex-1 truncate">
+              {item.name}
+              {item.quantity && (
+                <span className="ml-1.5 text-xs text-ink-3">({item.quantity})</span>
+              )}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </details>
   )
 }
