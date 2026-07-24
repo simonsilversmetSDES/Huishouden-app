@@ -1,6 +1,6 @@
 """API-schemas voor het dashboard: budget vs. werkelijk per maand."""
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.models.enums import CategoryType
 
@@ -24,6 +24,20 @@ class MonthTotals(BaseModel):
     totals: list[TypeTotal]
 
 
+class MonthNoteOut(BaseModel):
+    month: int
+    note: str
+
+
+class MonthNoteIn(BaseModel):
+    """Maandnotitie zetten of wissen: een lege/witruimte-notitie verwijdert ze."""
+
+    context_id: int
+    year: int = Field(ge=2000, le=2100)
+    month: int = Field(ge=1, le=12)
+    note: str
+
+
 class DashboardOut(BaseModel):
     context_id: int
     year: int
@@ -34,3 +48,4 @@ class DashboardOut(BaseModel):
     categories: list[CategoryStatus]
     uncategorized_count: int
     months: list[MonthTotals]  # altijd 12, voor de staafgrafiek werkelijk vs. budget
+    month_notes: list[MonthNoteOut]  # enkel maanden mét notitie, oplopend op maand

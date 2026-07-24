@@ -11,6 +11,7 @@ from app.models.investments import (
     SecurityTransaction,
 )
 from app.models.loans import Loan, LoanContribution, LoanPayment, PropertyInvestment
+from app.models.month_note import MonthNote
 from app.models.snapshots import AccountSnapshot, NetWorthSnapshot
 from app.models.transactions import CategorizationRule, Import, RuleContext, Transaction
 
@@ -27,6 +28,7 @@ __all__ = [
     "Category",
     "Budget",
     "BudgetNote",
+    "MonthNote",
     "ForecastFormula",
     "ForecastNote",
     "Transaction",

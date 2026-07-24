@@ -22,6 +22,7 @@ const datum = new Intl.DateTimeFormat('nl-BE', {
 })
 
 const maandJaar = new Intl.DateTimeFormat('nl-BE', { month: 'long', year: 'numeric' })
+const maandLang = new Intl.DateTimeFormat('nl-BE', { month: 'long' })
 
 export const MAAND_KORT = [
   'jan',
@@ -62,6 +63,11 @@ export function formatDate(isoDate: string): string {
 /** "juli 2026" voor een jaar/maand-combinatie. */
 export function formatMonthYear(year: number, month: number): string {
   return maandJaar.format(new Date(year, month - 1, 1))
+}
+
+/** "juli" — enkel de maandnaam (1..12). */
+export function formatMonth(month: number): string {
+  return maandLang.format(new Date(2000, month - 1, 1))
 }
 
 /**

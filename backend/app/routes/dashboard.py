@@ -6,8 +6,8 @@ from sqlalchemy.orm import Session
 from app.auth.deps import CurrentUser
 from app.database import get_db
 from app.models import Context
-from app.schemas.dashboard import DashboardOut
-from app.services.dashboard import build_dashboard
+from app.schemas.dashboard import DashboardOut, MonthNoteIn
+from app.services.dashboard import build_dashboard, upsert_month_note
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
@@ -25,3 +25,15 @@ def get_dashboard(
     if context is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Onbekende context")
     return build_dashboard(db, context, year, month, month_to)
+
+
+@router.put("/notes", status_code=status.HTTP_204_NO_CONTENT)
+def put_month_note(
+    body: MonthNoteIn,
+    _user: CurrentUser,
+    db: Annotated[Session, Depends(get_db)],
+) -> None:
+    """Maandnotitie zetten of wissen (lege notitie = verwijderen)."""
+    if db.get(Context, body.context_id) is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="Onbekende context")
+    upsert_month_note(db, body)

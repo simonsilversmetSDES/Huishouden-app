@@ -1,12 +1,20 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api/client'
-import type { AccountStatus, CategoryStatus, CategoryType, DashboardData, TypeTotal } from '../api/types'
+import type {
+  AccountStatus,
+  CategoryStatus,
+  CategoryType,
+  DashboardData,
+  MonthNote,
+  MonthNotePayload,
+  TypeTotal,
+} from '../api/types'
 import DonutCard from '../components/DonutCard'
 import Meter, { spendingTone, type MeterTone } from '../components/Meter'
 import PeriodPicker, { currentPeriod, ytdCutoff, type Period } from '../components/PeriodPicker'
 import TrackedVsBudget from '../components/TrackedVsBudget'
-import { formatCents, formatCentsPlain, formatMonthYear } from '../lib/format'
+import { formatCents, formatCentsPlain, formatMonth, formatMonthYear } from '../lib/format'
 import { useIsMobile } from '../lib/useMediaQuery'
 import { useAppState } from '../state/AppState'
 
@@ -71,7 +79,7 @@ export default function Dashboard() {
 
       {contextId !== null && <VermogenGlance contextId={contextId} />}
 
-      {!error && data && <DashboardBody data={data} period={period} />}
+      {!error && data && <DashboardBody data={data} period={period} onSaved={load} />}
       {!error && !data && <p className="py-12 text-center text-sm text-ink-3">Laden…</p>}
     </div>
   )
@@ -102,7 +110,15 @@ function VermogenGlance({ contextId }: { contextId: number }) {
   )
 }
 
-function DashboardBody({ data, period }: { data: DashboardData; period: Period }) {
+function DashboardBody({
+  data,
+  period,
+  onSaved,
+}: {
+  data: DashboardData
+  period: Period
+  onSaved: () => void
+}) {
   const tba = data.to_be_allocated_cents
   const tbaTone = tba === 0 ? 'good' : tba > 0 ? 'accent' : 'crit'
   const periodWord =
@@ -224,6 +240,103 @@ function DashboardBody({ data, period }: { data: DashboardData; period: Period }
           </p>
         </section>
       )}
+
+      <MonthNotes data={data} period={period} onSaved={onSaved} />
+    </div>
+  )
+}
+
+// Maandnotities, helemaal onderaan het dashboard. In maand-modus één bewerkbaar
+// veld voor die maand (toevoegen/bewerken). In YTD/jaar-modus de maanden mét een
+// notitie, ter inzage en bewerkbaar — een notitie hoort bij (context, jaar, maand),
+// dus wat je in maand-modus toevoegt verschijnt hier vanzelf.
+function MonthNotes({
+  data,
+  period,
+  onSaved,
+}: {
+  data: DashboardData
+  period: Period
+  onSaved: () => void
+}) {
+  const noteByMonth = new Map(data.month_notes.map((n) => [n.month, n.note]))
+  const months =
+    period.mode === 'maand'
+      ? [period.month]
+      : data.month_notes
+          .map((n: MonthNote) => n.month)
+          .filter((m) => (period.mode === 'ytd' ? m <= ytdCutoff(period.year) : true))
+
+  return (
+    <section className="rounded-2xl border border-edge bg-surface p-5">
+      <h2 className="text-sm font-medium text-ink-2">Notities</h2>
+      {months.length === 0 ? (
+        <p className="mt-2 text-sm text-ink-3">
+          Nog geen notities. Kies een maand om er een toe te voegen.
+        </p>
+      ) : (
+        <div className="mt-3 space-y-4">
+          {months.map((m) => (
+            <MonthNoteRow
+              key={`${data.context_id}-${data.year}-${m}`}
+              contextId={data.context_id}
+              year={data.year}
+              month={m}
+              note={noteByMonth.get(m) ?? ''}
+              onSaved={onSaved}
+            />
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}
+
+function MonthNoteRow({
+  contextId,
+  year,
+  month,
+  note,
+  onSaved,
+}: {
+  contextId: number
+  year: number
+  month: number
+  note: string
+  onSaved: () => void
+}) {
+  const [text, setText] = useState(note)
+  const [saving, setSaving] = useState(false)
+
+  // Opslaan bij verlaten van het veld; leeg = notitie wissen. Niks veranderd →
+  // geen call. Na opslaan het dashboard herladen zodat andere modi meteen kloppen.
+  async function save() {
+    if (text.trim() === note.trim()) return
+    setSaving(true)
+    try {
+      const payload: MonthNotePayload = { context_id: contextId, year, month, note: text }
+      await api<void>('/api/dashboard/notes', {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      })
+      onSaved()
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div>
+      <label className="text-xs font-medium capitalize text-ink-3">{formatMonth(month)}</label>
+      <textarea
+        rows={2}
+        value={text}
+        disabled={saving}
+        onChange={(e) => setText(e.target.value)}
+        onBlur={() => void save()}
+        placeholder="Notitie voor deze maand…"
+        className="mt-1 w-full resize-y rounded-lg border border-edge bg-raised/40 px-3 py-2 text-sm text-ink placeholder:text-ink-3 focus:border-accent focus:outline-none"
+      />
     </div>
   )
 }

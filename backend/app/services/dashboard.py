@@ -21,15 +21,48 @@ from decimal import Decimal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import Budget, Category, Context, Transaction
+from app.models import Budget, Category, Context, MonthNote, Transaction
 from app.models.enums import CategoryType
-from app.schemas.dashboard import CategoryStatus, DashboardOut, MonthTotals, TypeTotal
+from app.schemas.dashboard import (
+    CategoryStatus,
+    DashboardOut,
+    MonthNoteIn,
+    MonthNoteOut,
+    MonthTotals,
+    TypeTotal,
+)
 from app.services.budget import TYPE_ORDER, ZERO, compute_tba, to_cents
 
 
 def _actual_magnitude(tx_type: CategoryType, amount: Decimal) -> Decimal:
     """+ = inkomen, − = uitgave; binnen Uitgaven/Sparen is 'werkelijk' dus −bedrag."""
     return amount if tx_type == CategoryType.INKOMEN else -amount
+
+
+def upsert_month_note(db: Session, item: MonthNoteIn) -> None:
+    """Zet of wist een maandnotitie (lege/witruimte-notitie = verwijderen).
+
+    De context is al gevalideerd door de route; hier enkel de db-upsert."""
+    existing = db.scalars(
+        select(MonthNote).where(
+            MonthNote.context_id == item.context_id,
+            MonthNote.year == item.year,
+            MonthNote.month == item.month,
+        )
+    ).one_or_none()
+    text = item.note.strip()
+    if text == "":
+        if existing is not None:
+            db.delete(existing)
+    elif existing is None:
+        db.add(
+            MonthNote(
+                context_id=item.context_id, year=item.year, month=item.month, note=text
+            )
+        )
+    else:
+        existing.note = text
+    db.commit()
 
 
 def build_dashboard(
@@ -59,6 +92,13 @@ def build_dashboard(
             Transaction.effective_date < date(year + 1, 1, 1),
             Transaction.is_internal_transfer.is_(False),
         )
+    ).all()
+    # Maandnotities van het hele jaar: onafhankelijk van de periode, zodat de
+    # frontend ze in maand-, YTD- én jaarmodus kan tonen. Enkel maanden mét notitie.
+    note_rows = db.scalars(
+        select(MonthNote)
+        .where(MonthNote.context_id == context.id, MonthNote.year == year)
+        .order_by(MonthNote.month)
     ).all()
 
     # Periode-venster [lo, hi] (incl.): losse maand, YTD (1..month_to) of heel jaar.
@@ -146,6 +186,7 @@ def build_dashboard(
         ],
         categories=category_rows,
         uncategorized_count=uncategorized,
+        month_notes=[MonthNoteOut(month=n.month, note=n.note) for n in note_rows],
         months=[
             MonthTotals(
                 month=m,
